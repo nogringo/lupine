@@ -1,0 +1,37 @@
+name: lupine
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  crypto: ^3.0.6
+  desktop_drop: ^0.6.0
+  encrypt: ^5.0.3
+  file_picker: ^10.1.9
+  flutter:
+    sdk: flutter
+  flutter_dropzone_platform_interface: ^2.2.0
+  flutter_localizations:
+    sdk: flutter
+  get: ^4.7.2
+  hex: ^0.2.0
+  intl: any
+  mime: ^2.0.0
+  ndk: ^0.3.2
+  path: ^1.9.1
+
+  lupine_sdk:
+    path: ../lupine_sdk
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  generate: true
