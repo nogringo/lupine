@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
+import 'package:lupine/screens/login/login_page.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -35,6 +36,14 @@ class Repository extends GetxController {
 
   void listenEvents() async {
     DriveService().updateEvents.listen((_) => update());
+  }
+
+  logout() async {
+    fileExplorerViewPath = "/MyFiles";
+    DriveService().logout();
+    await Repository.to.storage.delete(key: "privkey");
+
+    Get.offAll(() => LoginPage());
   }
 
   void pickFolder() async {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/file_explorer/file_explorer_view.dart';
 import 'package:lupine/repository.dart';
+import 'package:lupine/screens/settings/settings_page.dart';
 import 'package:lupine/widgets/create_folder_dialog.dart';
 import 'package:lupine/widgets/file_explorer_path_view.dart';
 import 'package:lupine/widgets/sidebar/sidebar_view.dart';
@@ -57,10 +58,8 @@ class ExplorerPage extends StatelessWidget {
                   title: Text("Lupine"),
                   actions: [
                     IconButton(
-                      onPressed: () async {
-                        repository.listenEvents();
-                      },
-                      icon: Icon(Icons.list),
+                      onPressed: () => Get.to(() => SettingsPage()),
+                      icon: Icon(Icons.settings),
                     ),
                   ],
                 ),

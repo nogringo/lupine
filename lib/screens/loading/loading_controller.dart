@@ -7,7 +7,6 @@ class LoadingController extends GetxController {
   static LoadingController get to => Get.find();
 
   loadApp() async {
-    await Repository.to.storage.deleteAll();
     final privkey = await Repository.to.storage.read(key: "privkey");
 
     if (privkey == null) {
