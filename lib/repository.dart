@@ -3,14 +3,12 @@ import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:path/path.dart' as p;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class Repository extends GetxController {
   static Repository get to => Get.find();
 
-  String privkey =
-      "f7bea91e8405fd14d35db628d0e7f28d3b2ceb95c877636e09467bdc342736c2";
-  String pubkey =
-      "bae98a17062741b75be44119de5ab3b6798a02fc3917d7be1a2061d1441c941d";
+  final storage = FlutterSecureStorage();
 
   String _fileExplorerViewPath = "/MyFiles";
 
@@ -30,7 +28,7 @@ class Repository extends GetxController {
 
   List<DriveEvent> get driveEvents => DriveService().driveEvents;
 
-  Repository() {
+  initDriveService(String privkey) {
     DriveService().login(privkey: privkey);
     listenEvents();
   }

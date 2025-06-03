@@ -26,6 +26,9 @@ dependencies:
   lupine_sdk:
     path: ../lupine_sdk
   path_provider: ^2.1.5
+  flutter_secure_storage: ^9.2.4
+  pointycastle: ^3.9.1
+  bech32: ^0.2.2
 
 dev_dependencies:
   flutter_test:
