@@ -1,3 +1,3 @@
-# lupine
+# Lupine
 
-A drive app to store your files in a decentralized way
+A drive app to store your files in a decentralized way.
