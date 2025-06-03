@@ -24,6 +24,6 @@ class LoginController extends GetxController {
     Repository.to.storage.write(key: "privkey", value: privkey);
     Repository.to.initDriveService(privkey);
 
-    Get.to(() => ExplorerPage());
+    Get.off(() => ExplorerPage());
   }
 }

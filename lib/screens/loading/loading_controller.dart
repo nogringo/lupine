@@ -11,11 +11,11 @@ class LoadingController extends GetxController {
     final privkey = await Repository.to.storage.read(key: "privkey");
 
     if (privkey == null) {
-      Get.to(() => LoginPage());
+      Get.off(() => LoginPage());
       return;
     }
 
     Repository.to.initDriveService(privkey);
-    Get.to(() => ExplorerPage());
+    Get.off(() => ExplorerPage());
   }
 }
