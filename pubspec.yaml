@@ -24,8 +24,6 @@ dependencies:
   path: ^1.9.1
 
   lupine_sdk:
-    path: ../lupine_sdk
-  lupine_sdk:
     git:
       url: https://github.com/nogringo/lupine-sdk.git
       ref: master
