@@ -49,7 +49,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Web
-        run: flutter build web
+        run: flutter build web --base-href /lupine/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
