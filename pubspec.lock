@@ -344,11 +344,10 @@ packages:
   lupine_sdk:
     dependency: "direct main"
     description:
-      path: "."
-      ref: master
-      resolved-ref: ef31e41e29b31f81a6ce0b57441ccf07f705671e
-      url: "https://github.com/nogringo/lupine-sdk.git"
-    source: git
+      name: lupine_sdk
+      sha256: "080b8da7600ac8be6e5368d5d1971710c325aa9fb4912ab66e4a17c7667f3588"
+      url: "https://pub.dev"
+    source: hosted
     version: "1.0.0"
   matcher:
     dependency: transitive
