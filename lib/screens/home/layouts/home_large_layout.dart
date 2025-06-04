@@ -1,7 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
+import 'package:lupine/constants.dart';
 import 'package:lupine/screens/home/home_controller.dart';
 import 'package:lupine/widgets/desktop/window_buttons.dart';
 import 'package:window_manager/window_manager.dart';
@@ -20,11 +20,11 @@ class HomeargeLayout extends StatelessWidget {
             alignment: AlignmentDirectional.centerStart,
             child: Text(appTitle),
           );
-          if (kIsWeb) return title;
-          return DragToMoveArea(child: title);
+          if (isDesktop) return DragToMoveArea(child: title);
+          return title;
         }(),
         actions: [
-          if (GetPlatform.isDesktop)
+          if (isDesktop)
             Align(alignment: Alignment.topCenter, child: WindowButtons()),
         ],
       ),
@@ -34,7 +34,6 @@ class HomeargeLayout extends StatelessWidget {
             children: [
               NavigationRail(
                 selectedIndex: HomeController.to.selectedIndex,
-                groupAlignment: 0,
                 labelType: NavigationRailLabelType.selected,
                 leading: FloatingActionButton(
                   elevation: 0,

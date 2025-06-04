@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lupine/constants.dart';
 import 'package:window_manager/window_manager.dart';
 
 class WindowButtons extends StatelessWidget {
@@ -6,6 +7,8 @@ class WindowButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!isDesktop) return Container();
+
     return SizedBox(
       width: 138,
       height: 32,

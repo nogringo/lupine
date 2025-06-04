@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
+import 'package:lupine/constants.dart';
 import 'package:lupine/screens/home/home_controller.dart';
 import 'package:lupine/screens/home/layouts/home_large_layout.dart';
 import 'package:lupine/screens/home/layouts/home_small_layout.dart';
@@ -13,13 +14,17 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Get.put(HomeController());
-    return DragToResizeArea(
-      child: DropZoneView(
-        child: LayoutBuilder(builder: (context, constraints) {
+
+    final child = DropZoneView(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
           if (constraints.maxWidth > maxSmallWidth) return HomeargeLayout();
           return HomeSmallLayout();
-        }),
+        },
       ),
     );
+
+    if (isDesktop) return DragToResizeArea(child: child);
+    return child;
   }
 }

@@ -1,10 +1,16 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/screens/login/login_page.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
+import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:toastification/toastification.dart';
 
 class Repository extends GetxController {
   static Repository get to => Get.find();
@@ -47,6 +53,22 @@ class Repository extends GetxController {
   }
 
   void pickFolder() async {
+    if (kIsWeb) {
+      toastification.show(
+        context: Get.context,
+        type: ToastificationType.custom(
+          "name",
+          Theme.of(Get.context!).colorScheme.primaryContainer,
+          Icons.info_outlined,
+        ),
+        style: ToastificationStyle.fillColored,
+        alignment: Alignment.bottomRight,
+        title: Text("Drop folder"),
+        description: Text("$appTitle web does not support folder drop"),
+      );
+      return;
+    }
+
     String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
     if (selectedDirectory == null) return;
     addFolder(selectedDirectory, fileExplorerViewPath);
@@ -62,15 +84,23 @@ class Repository extends GetxController {
     );
 
     if (result == null) return;
-    for (var path in result.paths) {
-      addFile(path!);
+    for (var file in result.files) {
+      Uint8List? bytes;
+      if (kIsWeb) {
+        bytes = file.bytes;
+      } else {
+        bytes = await File(file.path!).readAsBytes();
+      }
+
+      if (bytes == null) continue;
+
+      DriveService().addFile(
+        bytes: bytes,
+        name: file.name,
+        mimeType: lookupMimeType(file.path!),
+        destPath: fileExplorerViewPath,
+      );
     }
-  }
-
-  Future<void> addFile(String path, {String? destPath}) async {
-    destPath ??= fileExplorerViewPath;
-
-    DriveService().addFile(path, destPath: destPath);
   }
 
   void listBlobs() async {
