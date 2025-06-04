@@ -82,15 +82,17 @@ jobs:
       - name: Build Linux
         run: flutter build linux
 
-      - name: Create tar.gz archive
+      - name: Create tar.gz archive with parent folder
         run: |
-          tar -czvf linux_release_v1.0.0.tar.gz -C build/linux/x64/release/bundle .
+          mkdir -p release_archive/Lupine-linux
+          cp -r build/linux/x64/release/bundle/* release_archive/Lupine-linux/
+          tar -czvf Lupine-linux.tar.gz -C release_archive .
 
       - name: Upload Linux build to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.0
           name: Linux Release v1.0.0
-          files: linux_release_v1.0.0.tar.gz
+          files: Lupine-linux.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
