@@ -33,29 +33,29 @@ jobs:
   #       env:
   #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # build-web:
-  #   name: Build Web
-  #   runs-on: ubuntu-latest
+  build-web:
+    name: Build Web
+    runs-on: ubuntu-latest
 
-  #   steps:
-  #     - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - name: Set up Flutter
-  #       uses: subosito/flutter-action@v2
-  #       with:
-  #         flutter-version: '3.32.1'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.1'
 
-  #     - name: Install dependencies
-  #       run: flutter pub get
+      - name: Install dependencies
+        run: flutter pub get
 
-  #     - name: Build Web
-  #       run: flutter build web --base-href /lupine/
+      - name: Build Web
+        run: flutter build web --base-href /lupine/
 
-  #     - name: Deploy to GitHub Pages
-  #       uses: peaceiris/actions-gh-pages@v3
-  #       with:
-  #         github_token: ${{ secrets.GITHUB_TOKEN }}
-  #         publish_dir: ./build/web
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
 
   build-linux:
     name: Build Linux
