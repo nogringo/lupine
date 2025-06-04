@@ -79,9 +79,6 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      - name: Enable Linux desktop support
-        run: flutter config --enable-linux-desktop
-
       - name: Build Linux
         run: flutter build linux
 
