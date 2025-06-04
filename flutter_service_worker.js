@@ -3,10 +3,11 @@ const MANIFEST = 'flutter-app-manifest';
 const TEMP = 'flutter-temp-cache';
 const CACHE_NAME = 'flutter-app-cache';
 
-const RESOURCES = {"icons/Icon-192.png": "ac9a721a12bbc803b44f645561ecb1e1",
-"icons/Icon-maskable-512.png": "301a7604d45b3e739efc881eb04896ea",
-"icons/Icon-maskable-192.png": "c457ef57daa1d16f64b27b786ec2ea3c",
-"icons/Icon-512.png": "96e752610906ba2a93c65f8abe1645f1",
+const RESOURCES = {"icons/icon-512.png": "5b5297cc3b21ec0740b6620c0af7d370",
+"icons/icon-512-maskable.png": "8814979ae806c8c9652399469fd69fa2",
+"icons/icon-192.png": "410805ba60fc82e43354b413d0794acc",
+"icons/apple-touch-icon.png": "d7de84c3b872690898d8005a2afc2027",
+"icons/icon-192-maskable.png": "45f6ebdd11a8601f166b143809a6cffe",
 "canvaskit/canvaskit.wasm": "7a3f4ae7d65fc1de6a6e7ddd3224bc93",
 "canvaskit/chromium/canvaskit.wasm": "f504de372e31c8031018a9ec0a9ef5f0",
 "canvaskit/chromium/canvaskit.js": "8191e843020c832c9cf8852a4b909d4c",
@@ -24,13 +25,13 @@ const RESOURCES = {"icons/Icon-192.png": "ac9a721a12bbc803b44f645561ecb1e1",
 "assets/AssetManifest.bin.json": "a1fee2517bf598633e2f67fcf3e26c94",
 "assets/shaders/ink_sparkle.frag": "ecc85a2e95f5e9f53123dcaf8cb9b6ce",
 "flutter.js": "83d881c1dbb6d6bcd6b42e274605b69c",
-"manifest.json": "79ca02900dbc8b1cc9b520aea9e5244b",
-"index.html": "a0f0063388de6ff2838339d0d59ac22c",
-"/": "a0f0063388de6ff2838339d0d59ac22c",
+"favicon.ico": "c1b8912f8e56c099a957ab48fc192887",
+"manifest.json": "6d1ad1ffc7f8e4df6540dcda73f316fa",
+"index.html": "173f4be093f4016fcb4da49d77e3763c",
+"/": "173f4be093f4016fcb4da49d77e3763c",
 "version.json": "4c260cdec727e035c4e8da0bccde63c0",
-"flutter_bootstrap.js": "8dbfb0b8c9f0030b67766e8c08e6322d",
-"main.dart.js": "c7a9584c1904e23b38a2ed235c82b4f2",
-"favicon.png": "5dcef449791fa27946b3d35ad8803796"};
+"flutter_bootstrap.js": "ff54958c91822eaea9f25653865bec7e",
+"main.dart.js": "c7a9584c1904e23b38a2ed235c82b4f2"};
 // The application shell files that are downloaded before a service worker can
 // start.
 const CORE = ["main.dart.js",
