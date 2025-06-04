@@ -28,6 +28,7 @@ dependencies:
   pointycastle: ^3.9.1
   bech32: ^0.2.2
   system_theme: ^3.1.2
+  window_manager: ^0.5.0
 
 dev_dependencies:
   flutter_test:

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/nsec_to_hex.dart';
 import 'package:lupine/repository.dart';
-import 'package:lupine/screens/explorer/explorer_page.dart';
+import 'package:lupine/screens/home/home_page.dart';
 
 class LoginController extends GetxController {
   static LoginController get to => Get.find();
@@ -24,6 +24,6 @@ class LoginController extends GetxController {
     Repository.to.storage.write(key: "privkey", value: privkey);
     Repository.to.initDriveService(privkey);
 
-    Get.off(() => ExplorerPage());
+    Get.off(() => HomePage());
   }
 }
