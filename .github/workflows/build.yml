@@ -85,11 +85,15 @@ jobs:
       - name: Build Linux
         run: flutter build linux
 
+      - name: Create tar.gz archive
+        run: |
+          tar -czvf linux_release_v1.0.0.tar.gz -C build/linux/x64/release/bundle .
+
       - name: Upload Linux build to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.0.0  # ou une version dynamique
+          tag_name: v1.0.0
           name: Linux Release v1.0.0
-          files: build/linux/x64/release/bundle/**
+          files: linux_release_v1.0.0.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
