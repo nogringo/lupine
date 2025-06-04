@@ -368,10 +368,11 @@ packages:
   lupine_sdk:
     dependency: "direct main"
     description:
-      path: "../lupine_sdk"
-      relative: true
-    source: path
-    version: "1.0.0"
+      name: lupine_sdk
+      sha256: "44b7128445f44067c30e22a28a66b39a15934503e3a77803b782750144d4e24d"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.1"
   matcher:
     dependency: transitive
     description:

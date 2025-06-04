@@ -22,10 +22,10 @@ dependencies:
   mime: ^2.0.0
   ndk: ^0.3.2
   path: ^1.9.1
-  # lupine_sdk: ^1.0.0
-  lupine_sdk:
-    path:
-      ../lupine_sdk
+  lupine_sdk: ^1.0.0
+  # lupine_sdk:
+  #   path:
+  #     ../lupine_sdk
   path_provider: ^2.1.5
   flutter_secure_storage: ^9.2.4
   pointycastle: ^3.9.1
