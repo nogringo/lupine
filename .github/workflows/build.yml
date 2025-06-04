@@ -88,11 +88,18 @@ jobs:
           cp -r build/linux/x64/release/bundle/* release_archive/Lupine-linux/
           tar -czvf Lupine-linux.tar.gz -C release_archive .
 
+      - name: Get version from pubspec.yaml
+        id: version
+        run: |
+          VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}' | tr -d "'" | tr -d '"')
+          echo "Version extracted: $VERSION"
+          echo "::set-output name=version::$VERSION"
+
       - name: Upload Linux build to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.0.0
-          name: Linux Release v1.0.0
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Linux Release v${{ steps.version.outputs.version }}
           files: Lupine-linux.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
