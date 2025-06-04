@@ -6,8 +6,8 @@ import 'package:lupine/screens/home/home_controller.dart';
 import 'package:lupine/widgets/desktop/window_buttons.dart';
 import 'package:window_manager/window_manager.dart';
 
-class ExplorerSmallLayout extends StatelessWidget {
-  const ExplorerSmallLayout({super.key});
+class HomeSmallLayout extends StatelessWidget {
+  const HomeSmallLayout({super.key});
 
   @override
   Widget build(BuildContext context) {

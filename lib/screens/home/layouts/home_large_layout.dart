@@ -6,8 +6,8 @@ import 'package:lupine/screens/home/home_controller.dart';
 import 'package:lupine/widgets/desktop/window_buttons.dart';
 import 'package:window_manager/window_manager.dart';
 
-class ExplorerLargeLayout extends StatelessWidget {
-  const ExplorerLargeLayout({super.key});
+class HomeargeLayout extends StatelessWidget {
+  const HomeargeLayout({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -51,8 +51,7 @@ class ExplorerLargeLayout extends StatelessWidget {
                           ),
                         )
                         .toList(),
-                onDestinationSelected:
-                    HomeController.to.onDestinationSelected,
+                onDestinationSelected: HomeController.to.onDestinationSelected,
               ),
               Expanded(
                 child: Container(
