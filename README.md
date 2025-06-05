@@ -13,3 +13,7 @@ A drive app to store your files in a decentralized way.
 - [ ] Add sync folders
 - [ ] Ignore files from sync with .syncignore
 - [ ] Add search
+
+## Contributing
+
+Contributions are welcome! Please open issues or submit pull requests.
