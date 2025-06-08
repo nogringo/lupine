@@ -15,6 +15,10 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     Get.put(HomeController());
 
+    if (GetPlatform.isMobile) {
+      return HomeSmallLayout();
+    }
+
     final child = DropZoneView(
       child: LayoutBuilder(
         builder: (context, constraints) {
