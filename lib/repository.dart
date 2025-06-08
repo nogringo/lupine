@@ -35,7 +35,7 @@ class Repository extends GetxController {
 
   List<DriveEvent> get driveEvents => DriveService().driveEvents;
 
-  initDriveService(String privkey) {
+  login(String privkey) {
     DriveService().login(privkey: privkey);
     listenEvents();
   }

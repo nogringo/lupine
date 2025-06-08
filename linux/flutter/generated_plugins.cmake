@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   flutter_secure_storage_linux
+  isar_flutter_libs
   screen_retriever_linux
   system_theme
   window_manager

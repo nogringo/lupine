@@ -4,6 +4,7 @@ import 'package:lupine/constants.dart';
 import 'package:lupine/l10n/app_localizations.dart';
 import 'package:lupine/screens/loading/loading_page.dart';
 import 'package:lupine/repository.dart';
+import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:toastification/toastification.dart';
@@ -19,6 +20,8 @@ void main() async {
       WindowOptions(titleBarStyle: TitleBarStyle.hidden),
     );
   }
+
+  await DriveService().init(); // TODO move it somewhere else
 
   Get.put(Repository());
   runApp(const MainApp());
