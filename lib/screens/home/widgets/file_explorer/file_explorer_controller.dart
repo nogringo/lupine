@@ -1,5 +1,5 @@
 import 'package:get/get.dart';
-import 'package:lupine/file_explorer/file_explorer_view.dart';
+import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_view.dart';
 import 'package:lupine/widgets/folder_selection_dialog/folder_selection_dialog_view.dart';
 import 'package:lupine/widgets/rename_entity_dialog.dart';
 import 'package:lupine/repository.dart';

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:lupine/constants.dart';
 import 'package:lupine/l10n/app_localizations.dart';
@@ -39,17 +40,33 @@ class MainApp extends StatelessWidget {
             supportAccentColor ? accent.accent : accent.defaultAccentColor;
         if (kIsWeb) accentColor = const Color(0xFF6A5ACD);
 
-        return ToastificationWrapper(
-          child: GetMaterialApp(
-            theme: ThemeData.from(
-              colorScheme: ColorScheme.fromSeed(seedColor: accentColor),
-            ),
-            darkTheme: ThemeData.from(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: accentColor,
-                brightness: Brightness.dark,
+        ThemeData getTheme([Brightness? brightness]) {
+          brightness = brightness ?? Brightness.light;
+          final bool isLightTheme = brightness == Brightness.light;
+
+          final colorScheme = ColorScheme.fromSeed(
+            seedColor: accentColor,
+            brightness: brightness,
+          );
+
+          return ThemeData(
+            appBarTheme: AppBarTheme(
+              systemOverlayStyle: SystemUiOverlayStyle(
+                statusBarBrightness: isLightTheme ? Brightness.dark : Brightness.light, //! It does not switch on emulator
+                systemNavigationBarColor: colorScheme.surfaceContainer,
+                systemNavigationBarIconBrightness:
+                    isLightTheme ? Brightness.dark : Brightness.light,
               ),
             ),
+            colorScheme: colorScheme,
+            brightness: brightness,
+          );
+        }
+
+        return ToastificationWrapper(
+          child: GetMaterialApp(
+            theme: getTheme(),
+            darkTheme: getTheme(Brightness.dark),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: LoadingPage(),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:lupine/file_explorer/file_explorer_view.dart';
+import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_view.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/widgets/create_folder_dialog.dart';
 import 'package:lupine/widgets/file_explorer_path_view.dart';

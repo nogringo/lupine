@@ -4,7 +4,6 @@ A drive app to store your files in a decentralized way.
 
 ## Todo
 
-- [ ] Configure relay and blossom in settings
 - [ ] Auto increment version on push
 - [ ] Add grid view
 - [ ] Allow folder drop on web
@@ -13,6 +12,8 @@ A drive app to store your files in a decentralized way.
 - [ ] Add sync folders
 - [ ] Ignore files from sync with .syncignore
 - [ ] Add search
+- [ ] Persist data on web
+- [ ] For folder size, be able to choose between size in items or in bytes
 
 ## Contributing
 
