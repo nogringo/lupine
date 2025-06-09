@@ -14,7 +14,7 @@ class LoadingController extends GetxController {
       return;
     }
 
-    Repository.to.initDriveService(privkey);
+    Repository.to.login(privkey);
     Get.off(() => HomePage());
   }
 }

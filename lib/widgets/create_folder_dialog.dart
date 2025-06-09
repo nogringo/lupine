@@ -11,9 +11,9 @@ class CreateFolderDialog extends StatelessWidget {
     final fieldController = TextEditingController();
     return AlertDialog(
       title: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text("Create a new folder"),
-          SizedBox(width: 32),
           CloseButton(),
         ],
       ),

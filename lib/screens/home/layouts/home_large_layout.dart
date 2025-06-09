@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:lupine/config.dart';
-import 'package:lupine/constants.dart';
+import 'package:lupine/screens/home/widgets/get_app_bar.dart';
 import 'package:lupine/screens/home/home_controller.dart';
-import 'package:lupine/widgets/desktop/window_buttons.dart';
-import 'package:window_manager/window_manager.dart';
 
 class HomeargeLayout extends StatelessWidget {
   const HomeargeLayout({super.key});
@@ -12,22 +9,7 @@ class HomeargeLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        title: () {
-          final title = Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: Text(appTitle),
-          );
-          if (isDesktop) return DragToMoveArea(child: title);
-          return title;
-        }(),
-        actions: [
-          if (isDesktop)
-            Align(alignment: Alignment.topCenter, child: WindowButtons()),
-        ],
-      ),
+      appBar: getAppBar(),
       body: GetBuilder<HomeController>(
         builder: (explorerController) {
           return Row(

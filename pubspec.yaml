@@ -20,9 +20,8 @@ dependencies:
   hex: ^0.2.0
   intl: any
   mime: ^2.0.0
-  ndk: ^0.3.2
   path: ^1.9.1
-  lupine_sdk: ^1.0.0
+  lupine_sdk: ^1.0.2
   # lupine_sdk:
   #   path:
   #     ../lupine_sdk
@@ -33,6 +32,7 @@ dependencies:
   system_theme: ^3.1.2
   window_manager: ^0.5.0
   toastification: ^3.0.2
+  ndk: ^0.4.0
 
 dev_dependencies:
   flutter_test:

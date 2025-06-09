@@ -7,34 +7,37 @@ class FileExplorerPathView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GetBuilder<Repository>(
-      builder: (repositoryc) {
-        List<Widget> children = [];
-
-        final buttonList = Repository.to.fileExplorerViewPath.split("/");
-
-        for (var i = 0; i < buttonList.length; i++) {
-          final e = buttonList[i];
-
-          if (e == "") continue;
-
-          children.addAll([
-            TextButton(
-              onPressed: () {
-                Repository.to.fileExplorerViewPath = buttonList
-                    .sublist(0, i + 1)
-                    .join("/");
-              },
-              child: Text(e),
-            ),
-            Icon(Icons.chevron_right_rounded),
-          ]);
-        }
-
-        children.removeLast();
-
-        return Row(children: children);
-      },
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: GetBuilder<Repository>(
+        builder: (repositoryc) {
+          List<Widget> children = [];
+      
+          final buttonList = Repository.to.fileExplorerViewPath.split("/");
+      
+          for (var i = 0; i < buttonList.length; i++) {
+            final e = buttonList[i];
+      
+            if (e == "") continue;
+      
+            children.addAll([
+              TextButton(
+                onPressed: () {
+                  Repository.to.fileExplorerViewPath = buttonList
+                      .sublist(0, i + 1)
+                      .join("/");
+                },
+                child: Text(e),
+              ),
+              Icon(Icons.chevron_right_rounded),
+            ]);
+          }
+      
+          children.removeLast();
+      
+          return Row(children: children);
+        },
+      ),
     );
   }
 }
