@@ -43,7 +43,6 @@ class SettingsController extends GetxController {
 
     final userRelayLists = await DriveService().ndk.userRelayLists
         .getSingleUserRelayList(pubkey);
-        print(userRelayLists);
 
     if (userRelayLists != null) {
       relaysUrl = userRelayLists.relays.keys.toList();
@@ -51,7 +50,6 @@ class SettingsController extends GetxController {
 
     final blossomUserServerList = await DriveService().ndk.blossomUserServerList
         .getUserServerList(pubkeys: [pubkey]);
-        print(blossomUserServerList);
 
     if (blossomUserServerList != null) {
       blossomServersUrl = blossomUserServerList;

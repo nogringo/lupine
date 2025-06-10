@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:lupine/app_routes.dart';
 import 'package:lupine/constants.dart';
 import 'package:lupine/l10n/app_localizations.dart';
+import 'package:lupine/middlewares/router_login_middleware.dart';
+import 'package:lupine/screens/home/home_page.dart';
 import 'package:lupine/screens/loading/loading_page.dart';
 import 'package:lupine/repository.dart';
-import 'package:lupine_sdk/lupine_sdk.dart';
+import 'package:lupine/screens/login/login_page.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:toastification/toastification.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:url_strategy/url_strategy.dart';
 
 void main() async {
+  setPathUrlStrategy();
+
   WidgetsFlutterBinding.ensureInitialized();
   await SystemTheme.accentColor.load();
 
@@ -21,8 +27,6 @@ void main() async {
       WindowOptions(titleBarStyle: TitleBarStyle.hidden),
     );
   }
-
-  await DriveService().init(); // TODO move it somewhere else
 
   Get.put(Repository());
   runApp(const MainApp());
@@ -52,7 +56,10 @@ class MainApp extends StatelessWidget {
           return ThemeData(
             appBarTheme: AppBarTheme(
               systemOverlayStyle: SystemUiOverlayStyle(
-                statusBarBrightness: isLightTheme ? Brightness.dark : Brightness.light, //! It does not switch on emulator
+                statusBarBrightness:
+                    isLightTheme
+                        ? Brightness.dark
+                        : Brightness.light, //! It does not switch on emulator
                 systemNavigationBarColor: colorScheme.surfaceContainer,
                 systemNavigationBarIconBrightness:
                     isLightTheme ? Brightness.dark : Brightness.light,
@@ -69,7 +76,15 @@ class MainApp extends StatelessWidget {
             darkTheme: getTheme(Brightness.dark),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
-            home: LoadingPage(),
+            getPages: [
+              GetPage(
+                name: AppRoutes.home,
+                page: () => const HomePage(),
+                middlewares: [RouterLoginMiddleware()],
+              ),
+              GetPage(name: AppRoutes.login, page: () => const LoginPage()),
+              GetPage(name: AppRoutes.loading, page: () => const LoadingPage()),
+            ],
           ),
         );
       },

@@ -14,6 +14,7 @@ A drive app to store your files in a decentralized way.
 - [ ] Add search
 - [ ] Persist data on web
 - [ ] For folder size, be able to choose between size in items or in bytes
+- [ ] amber, bunker and extention login
 
 ## Contributing
 
