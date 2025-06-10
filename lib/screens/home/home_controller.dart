@@ -3,7 +3,6 @@ import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/home/widgets/explorer_view.dart';
-import 'package:lupine/screens/home/widgets/photos_view.dart';
 import 'package:lupine/screens/home/widgets/settings/settings_page.dart';
 
 class HomeController extends GetxController {
@@ -19,12 +18,12 @@ class HomeController extends GetxController {
         Repository.to.fileExplorerViewPath = myFilesPath;
       },
     ),
-    Destination(
-      icon: Icons.photo_outlined,
-      selectedIcon: Icons.photo,
-      label: 'Photos',
-      view: PhotosView(),
-    ),
+    // Destination(
+    //   icon: Icons.photo_outlined,
+    //   selectedIcon: Icons.photo,
+    //   label: 'Photos',
+    //   view: PhotosView(),
+    // ),
     Destination(
       icon: Icons.delete_outlined,
       selectedIcon: Icons.delete,
