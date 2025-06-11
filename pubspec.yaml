@@ -21,10 +21,10 @@ dependencies:
   intl: any
   mime: ^2.0.0
   path: ^1.9.1
-  lupine_sdk: ^1.0.2
-  # lupine_sdk:
-  #   path:
-  #     ../lupine_sdk
+  # lupine_sdk: ^1.0.2
+  lupine_sdk:
+    path:
+      ../lupine_sdk
   path_provider: ^2.1.5
   flutter_secure_storage: ^9.2.4
   pointycastle: ^3.9.1
@@ -34,6 +34,7 @@ dependencies:
   toastification: ^3.0.2
   ndk: ^0.4.0
   url_strategy: ^0.3.0
+  flutter_svg: ^2.1.0
 
 dev_dependencies:
   flutter_test:
@@ -43,3 +44,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
+
+  assets:
+    - images/lupinepath.svg 
