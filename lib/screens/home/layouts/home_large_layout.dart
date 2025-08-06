@@ -3,6 +3,8 @@ import 'package:get/get.dart';
 import 'package:lupine/screens/home/widgets/get_app_bar.dart';
 import 'package:lupine/screens/home/home_controller.dart';
 import 'package:lupine/widgets/sidebar/sidebar_controller.dart';
+import 'package:lupine/repository.dart';
+import 'package:lupine/widgets/create_folder_dialog.dart';
 
 class HomeargeLayout extends StatelessWidget {
   const HomeargeLayout({super.key});
@@ -44,7 +46,60 @@ class HomeargeLayout extends StatelessWidget {
                         left: 9,
                         top: 8,
                         child: FloatingActionButton.extended(
-                          onPressed: () {},
+                          onPressed: () {
+                            showMenu(
+                              context: context,
+                              position: RelativeRect.fromLTRB(20, 80, 200, 0),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: Theme.of(context).colorScheme.outlineVariant,
+                                  width: 1,
+                                ),
+                              ),
+                              elevation: 8,
+                              items: [
+                                PopupMenuItem(
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.create_new_folder_outlined),
+                                      SizedBox(width: 12),
+                                      Text('New Folder'),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    Future.delayed(Duration.zero, () {
+                                      Get.dialog(CreateFolderDialog());
+                                    });
+                                  },
+                                ),
+                                PopupMenuItem(
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.upload_file),
+                                      SizedBox(width: 12),
+                                      Text('Upload Files'),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    Repository.to.pickFiles();
+                                  },
+                                ),
+                                PopupMenuItem(
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.drive_folder_upload_outlined),
+                                      SizedBox(width: 12),
+                                      Text('Upload Folder'),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    Repository.to.pickFolder();
+                                  },
+                                ),
+                              ],
+                            );
+                          },
                           label: Text("New"),
                           icon: Icon(Icons.add),
                           isExtended: sidebarController.extended,
