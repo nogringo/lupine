@@ -51,7 +51,9 @@ String privkeyToPubkey(String privateKeyHex) {
   final Uint8List privateKeyBytes = hexToBytes(privateKeyHex);
 
   if (privateKeyBytes.length != 32) {
-    throw ArgumentError('Nostr private key must be 32 bytes long after decoding from hex.');
+    throw ArgumentError(
+      'Nostr private key must be 32 bytes long after decoding from hex.',
+    );
   }
 
   // Nostr uses the SECP256k1 elliptic curve

@@ -33,7 +33,9 @@ List<int> convertBits(List<int> data, int fromBits, int toBits, bool pad) {
 /// Convertit une clé publique hexadécimale (64 caractères) en npub Bech32
 String pubkeyToNpub(String hexPubkey) {
   if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(hexPubkey)) {
-    throw FormatException('La clé publique doit être une chaîne hexadécimale de 64 caractères.');
+    throw FormatException(
+      'La clé publique doit être une chaîne hexadécimale de 64 caractères.',
+    );
   }
 
   final bytes = List<int>.generate(

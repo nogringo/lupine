@@ -4,7 +4,7 @@ String nsecToHex(String nsec) {
   try {
     // Décoder le Bech32
     final bech32Data = Bech32Decoder().convert(nsec);
-    
+
     // Convertir les 5-bit words en bytes (8-bit)
     final data = _convertBits(bech32Data.data, 5, 8, false);
 

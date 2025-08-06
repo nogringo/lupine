@@ -4,16 +4,16 @@ A drive app to store your files in a decentralized way.
 
 ## Todo
 
-- [ ] Auto increment version on push
 - [ ] Add grid view
+- [ ] Add search
+- [ ] Add sync folders
+- [ ] Auto increment version on push
 - [ ] Allow folder drop on web
 - [ ] Allow pick folder on web
-- [ ] Switch to named route
-- [ ] Add sync folders
 - [ ] Ignore files from sync with .syncignore
-- [ ] Add search
-- [ ] Persist data on web
 - [ ] For folder size, be able to choose between size in items or in bytes
+- [ ] amber, bunker and extention login
+- [ ] Persist data on web
 
 ## Contributing
 

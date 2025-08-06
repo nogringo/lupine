@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/repository.dart';
-import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:toastification/toastification.dart';
@@ -32,11 +31,10 @@ class DropZoneController {
           continue; // TODO Allow folder drop on web
         }
 
-        DriveService().addFile(
-          bytes: await file.readAsBytes(),
-          name: file.name,
-          mimeType: file.mimeType,
-          destPath: Repository.to.fileExplorerViewPath,
+        Repository.to.driveService.uploadFile(
+          fileData: await file.readAsBytes(),
+          path: p.join(Repository.to.fileExplorerViewPath, file.name),
+          fileType: file.mimeType,
         );
       }
       return;
@@ -45,13 +43,15 @@ class DropZoneController {
     for (var file in detail.files) {
       final entityType = FileSystemEntity.typeSync(file.path);
       if (entityType == FileSystemEntityType.directory) {
-        Repository.to.addFolder(file.path, Repository.to.fileExplorerViewPath);
+        Repository.to.uploadFolder(folderPath: file.path);
       } else if (entityType == FileSystemEntityType.file) {
-        DriveService().addFile(
-          bytes: await file.readAsBytes(),
-          name: p.basename(file.path),
-          mimeType: lookupMimeType(file.path),
-          destPath: Repository.to.fileExplorerViewPath,
+        Repository.to.driveService.uploadFile(
+          fileData: await file.readAsBytes(),
+          path: p.join(
+            Repository.to.fileExplorerViewPath,
+            p.basename(file.path),
+          ),
+          fileType: lookupMimeType(file.path),
         );
       }
     }

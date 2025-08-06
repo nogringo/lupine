@@ -4,18 +4,23 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:lupine/app_routes.dart';
 import 'package:lupine/config.dart';
-import 'package:lupine/screens/login/login_page.dart';
+import 'package:lupine/get_database.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:mime/mime.dart';
+import 'package:ndk/ndk.dart';
 import 'package:path/path.dart' as p;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:sembast_cache_manager/sembast_cache_manager.dart';
 import 'package:toastification/toastification.dart';
 
 class Repository extends GetxController {
   static Repository get to => Get.find();
 
-  final storage = FlutterSecureStorage();
+  late Ndk ndk;
+  late DriveService driveService;
+
+  bool isAppLoaded = false;
 
   String _fileExplorerViewPath = "/MyFiles";
 
@@ -33,23 +38,33 @@ class Repository extends GetxController {
     update();
   }
 
-  List<DriveEvent> get driveEvents => DriveService().driveEvents;
+  Future<void> init() async {
+    if (isAppLoaded) return;
 
-  login(String privkey) {
-    DriveService().login(privkey: privkey);
+    ndk = Ndk(
+      NdkConfig(
+        eventVerifier: Bip340EventVerifier(),
+        cache: SembastCacheManager(await getDatabase()),
+      ),
+    );
+
+    driveService = DriveService(ndk: ndk, db: await getDatabase("lupine"));
+
     listenEvents();
+
+    isAppLoaded = true;
   }
 
   void listenEvents() async {
-    DriveService().updateEvents.listen((_) => update());
+    Repository.to.driveService.changes.listen((change) {
+      print("${change.type} and ${change.path}");
+      update();
+    });
   }
 
   logout() async {
     fileExplorerViewPath = "/MyFiles";
-    DriveService().logout();
-    await Repository.to.storage.delete(key: "privkey");
-
-    Get.offAll(() => LoginPage());
+    Get.offAllNamed(AppRoutes.login);
   }
 
   void pickFolder() async {
@@ -71,11 +86,7 @@ class Repository extends GetxController {
 
     String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
     if (selectedDirectory == null) return;
-    addFolder(selectedDirectory, fileExplorerViewPath);
-  }
-
-  Future<void> addFolder(String path, String destPath) async {
-    DriveService().addFolder(path, destPath);
+    uploadFolder(folderPath: selectedDirectory);
   }
 
   void pickFiles() async {
@@ -94,84 +105,60 @@ class Repository extends GetxController {
 
       if (bytes == null) continue;
 
-      DriveService().addFile(
-        bytes: bytes,
-        name: file.name,
-        mimeType: lookupMimeType(file.path!),
-        destPath: fileExplorerViewPath,
+      driveService.uploadFile(
+        fileData: bytes,
+        path: p.join(fileExplorerViewPath, file.name),
+        fileType: lookupMimeType(file.path!),
       );
     }
   }
 
-  void listBlobs() async {
-    // try {
-    //   final responses = await ndk.blossom.listBlobs(
-    //     pubkey:
-    //         "0ca3f123c42ba503f7dc5962f3768ca0c9ae36806f8aa96543e28cc8f24ce9b5",
-    //     serverUrls: blossomServers,
-    //   );
-
-    //   for (var response in responses) {
-    //     print(response.sha256);
-    //   }
-    // } catch (e) {
-    //   print(e);
-    // }
+  void moveToTrash(String path) {
+    if (p.isWithin(trashPath, path)) return;
+    final fileName = p.basename(path);
+    final newPath = p.join(trashPath, fileName);
+    driveService.move(oldPath: path, newPath: newPath);
   }
 
-  void checkBlob() async {
-    // try {
-    //   final response = await ndk.blossom.checkBlob(
-    //     sha256:
-    //         "fdce6b78e828130971bfd21c3ee87d4dd2c67af20b30c9ab90ab297c1036b8d1",
-    //     serverUrls: blossomServers,
-    //   );
-
-    //   print(response);
-    // } catch (e) {
-    //   print(e);
-    // }
-  }
-
-  void createFolder(String name, {String? destPath}) async {
-    destPath ??= fileExplorerViewPath;
-
-    DriveService().createFolder(name, destPath: destPath);
-  }
-
-  void deleteEvents(List<String> eventsId) async {
-    DriveService().deleteEvents(eventsId);
-  }
-
-  void copyEntityTo(DriveEvent driveEvent, String toPath) async {
-    DriveService().copyEntityTo(driveEvent, toPath);
-  }
-
-  void moveEntityTo(DriveEvent driveEvent, String toPath) {
-    DriveService().moveEntityTo(driveEvent, toPath);
-  }
-
-  void deleteEntity(DriveEvent entity) {
-    if (p.isWithin(trashPath, entity.path)) {
-      DriveService().deleteEntity(entity);
-      return;
-    }
-
-    DriveService().moveEntityTo(entity, trashPath);
-  }
-
-  void deleteEntityForever(DriveEvent entity) {
-    DriveService().deleteEntity(entity);
-  }
-
-  void emptyTrash() {
-    final entitiesToDelete = DriveService().list(trashPath);
+  void emptyTrash() async {
+    final entitiesToDelete = await driveService.list(trashPath);
     for (var entity in entitiesToDelete) {
-      DriveService().deleteEntity(entity);
+      driveService.deleteByPath(entity.path);
     }
   }
 
-  renameEntity(DriveEvent entity, String newName) async {
-    DriveService().renameEntity(entity, newName);
+  Future<void> uploadFolder({
+    required String folderPath,
+    String? destPath,
+  }) async {
+    if (kIsWeb) return;
+
+    final directory = Directory(folderPath);
+    if (!await directory.exists()) {
+      throw Exception('Folder does not exist: $folderPath');
+    }
+
+    final targetPath = destPath ?? fileExplorerViewPath;
+    final folderName = p.basename(folderPath);
+    final newFolderPath = p.join(targetPath, folderName);
+
+    await driveService.createFolder(newFolderPath);
+
+    await for (var entity in directory.list(recursive: false)) {
+      final entityName = p.basename(entity.path);
+
+      if (entity is File) {
+        final bytes = await entity.readAsBytes();
+        final mimeType = lookupMimeType(entity.path);
+
+        await driveService.uploadFile(
+          fileData: bytes,
+          path: p.join(newFolderPath, entityName),
+          fileType: mimeType,
+        );
+      } else if (entity is Directory) {
+        await uploadFolder(folderPath: entity.path, destPath: newFolderPath);
+      }
+    }
   }
 }

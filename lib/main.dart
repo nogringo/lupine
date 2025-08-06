@@ -1,18 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:lupine/app_routes.dart';
 import 'package:lupine/constants.dart';
 import 'package:lupine/l10n/app_localizations.dart';
-import 'package:lupine/screens/loading/loading_page.dart';
+import 'package:lupine/middlewares/router_login_middleware.dart';
+import 'package:lupine/screens/home/home_page.dart';
 import 'package:lupine/repository.dart';
-import 'package:lupine_sdk/lupine_sdk.dart';
+import 'package:lupine/screens/login/login_page.dart';
+import 'package:nostr_widgets/functions/functions.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:toastification/toastification.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:nostr_widgets/l10n/app_localizations.dart' as nostr_widgets;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await GetStorage.init();
   await SystemTheme.accentColor.load();
 
   if (isDesktop) {
@@ -22,9 +29,12 @@ void main() async {
     );
   }
 
-  await DriveService().init(); // TODO move it somewhere else
+  final repository = Repository();
+  Get.put(repository);
+  await repository.init();
 
-  Get.put(Repository());
+  await nRestoreAccounts(repository.ndk);
+
   runApp(const MainApp());
 }
 
@@ -52,7 +62,10 @@ class MainApp extends StatelessWidget {
           return ThemeData(
             appBarTheme: AppBarTheme(
               systemOverlayStyle: SystemUiOverlayStyle(
-                statusBarBrightness: isLightTheme ? Brightness.dark : Brightness.light, //! It does not switch on emulator
+                statusBarBrightness:
+                    isLightTheme
+                        ? Brightness.dark
+                        : Brightness.light, //! It does not switch on emulator
                 systemNavigationBarColor: colorScheme.surfaceContainer,
                 systemNavigationBarIconBrightness:
                     isLightTheme ? Brightness.dark : Brightness.light,
@@ -67,9 +80,22 @@ class MainApp extends StatelessWidget {
           child: GetMaterialApp(
             theme: getTheme(),
             darkTheme: getTheme(Brightness.dark),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+              nostr_widgets.AppLocalizations.delegate,
+            ],
             supportedLocales: AppLocalizations.supportedLocales,
-            home: LoadingPage(),
+            getPages: [
+              GetPage(
+                name: AppRoutes.home,
+                page: () => const HomePage(),
+                middlewares: [RouterLoginMiddleware()],
+              ),
+              GetPage(name: AppRoutes.login, page: () => const LoginPage()),
+            ],
           ),
         );
       },

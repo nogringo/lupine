@@ -4,9 +4,11 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
+  file_saver
   flutter_secure_storage_windows
   screen_retriever_windows
   system_theme
+  url_launcher_windows
   window_manager
 )
 

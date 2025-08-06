@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:lupine_sdk/lupine_sdk.dart';
+import 'package:lupine/repository.dart';
 
 class ProfilePictureView extends StatelessWidget {
   const ProfilePictureView({super.key});
@@ -7,11 +7,11 @@ class ProfilePictureView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: DriveService().ndk.metadata.loadMetadata(
-        DriveService().ndk.accounts.getPublicKey()!,
+      future: Repository.to.driveService.ndk.metadata.loadMetadata(
+        Repository.to.driveService.ndk.accounts.getPublicKey()!,
       ),
       builder: (context, snapshot) {
-        final pubkey = DriveService().ndk.accounts.getPublicKey()!;
+        final pubkey = Repository.to.driveService.ndk.accounts.getPublicKey()!;
         String? pictureUrl;
         if (snapshot.data != null) {
           pictureUrl = snapshot.data!.picture;

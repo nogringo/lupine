@@ -5,8 +5,6 @@ class PhotosView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text("Photos"),
-    );
+    return Center(child: Text("Photos"));
   }
 }

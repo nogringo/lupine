@@ -1,13 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:intl/intl.dart';
-import 'package:lupine/config.dart';
-import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_controller.dart';
-import 'package:lupine/utils/format_bytes.dart';
 import 'package:lupine/repository.dart';
-import 'package:path/path.dart' as p;
+import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_controller.dart';
+import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_grid_view.dart';
+import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_list_view.dart';
+import 'package:lupine_sdk/lupine_sdk.dart';
 
-enum Menu { download, move, rename, delete, emptyTrash }
+export 'package:lupine/screens/home/widgets/file_explorer/file_explorer_controller.dart'
+    show ViewMode;
+
+enum Menu {
+  download,
+  rename,
+  sync,
+  move,
+  copy,
+  changelog,
+  delete,
+  restore,
+  deleteForever,
+  info,
+}
 
 class FileExplorerView extends StatelessWidget {
   const FileExplorerView({super.key});
@@ -19,156 +32,53 @@ class FileExplorerView extends StatelessWidget {
         return GetBuilder(
           init: FileExplorerController(),
           builder: (fileExplorerController) {
-            final entities =
-                fileExplorerController.entities
-                    .where(
-                      (e) =>
-                          p.dirname(e.path) == Repository.to.fileExplorerViewPath,
-                    )
-                    .toList();
-        
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                final showModified = width > 800;
-                final showSize = width > 600;
-                return DataTable(
-                  showCheckboxColumn: false,
-                  sortColumnIndex: fileExplorerController.sortColumnIndex,
-                  sortAscending: fileExplorerController.sortAscending,
-                  columns: [
-                    DataColumn(
-                      label: Text("Name"),
-                      columnWidth: FlexColumnWidth(),
-                      onSort: fileExplorerController.onSort,
-                    ),
-                    if (showModified) DataColumn(
-                      label: Text("Modified"),
-                      onSort: fileExplorerController.onSort,
-                    ),
-                    if (showSize) DataColumn(
-                      label: Text("Size"),
-                      onSort: fileExplorerController.onSort,
-                    ),
-                    DataColumn(label: Container()),
-                  ],
-                  rows: List.generate(entities.length, (index) {
-                    final entity = entities[index];
-                        
-                    Widget preview = Container();
-                    if (entity.kind == "folder") {
-                      preview = Icon(
-                        Icons.folder,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      );
-                    }
-                    if (entity.kind == "x") {
-                      String? mime = entity.tags.elementAtOrNull(4);
-                      if (mime != null && mime.split("/").first == "image") {
-                        preview = FutureBuilder(
-                          future: entity.download(),
-                          builder: (context, snapshot) {
-                            if (snapshot.data == null) {
-                              return Container();
-                            }
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: Image.memory(snapshot.data!, fit: BoxFit.cover),
-                            );
-                          },
+            return FutureBuilder<List<DriveItem>>(
+              future: repository.driveService.list(
+                repository.fileExplorerViewPath,
+              ),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return Center(child: CircularProgressIndicator());
+                }
+
+                final allEntities = snapshot.data!;
+
+                // Sort entities: files first, then folders
+                final files = allEntities.whereType<FileMetadata>().toList();
+                final folders =
+                    allEntities.whereType<FolderMetadata>().toList();
+
+                // Sort each group by name
+                files.sort((a, b) => a.name.compareTo(b.name));
+                folders.sort((a, b) => a.name.compareTo(b.name));
+
+                // Combine: files first, folders at the end
+                final entities = [...files, ...folders];
+
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    return Obx(() {
+                      if (fileExplorerController.viewMode.value ==
+                          ViewMode.grid) {
+                        return FileExplorerGridView(
+                          entities: entities,
+                          controller: fileExplorerController,
                         );
                       } else {
-                        preview = Icon(
-                          Icons.insert_drive_file,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.primary,
+                        return FileExplorerListView(
+                          entities: entities,
+                          controller: fileExplorerController,
+                          constraints: constraints,
                         );
                       }
-                    }
-                        
-                    return DataRow(
-                      cells: [
-                        DataCell(
-                          Row(
-                            children: [
-                              SizedBox(width: 16, height: 16, child: preview),
-                              SizedBox(width: 8),
-                              Expanded(child: Text(entity.name, overflow: TextOverflow.ellipsis,)),
-                            ],
-                          ),
-                          onTap: () {
-                            if (entity.kind == "folder") {
-                              Repository.to.fileExplorerViewPath = entity.path;
-                            }
-                          },
-                        ),
-                        if (showModified) DataCell(Text(DateFormat().format(entity.createdAt))),
-                        if (showSize) DataCell(Text(formatBytes(entity.size))),
-                        DataCell(
-                          PopupMenuButton(
-                            itemBuilder:
-                                (context) => <PopupMenuEntry<Menu>>[
-                                  if (entity.path != trashPath)
-                                    PopupMenuItem(
-                                      value: Menu.download,
-                                      child: ListTile(
-                                        leading: Icon(Icons.download),
-                                        title: Text("Download"),
-                                      ),
-                                    ),
-                                  if (entity.path != trashPath)
-                                    PopupMenuItem(
-                                      value: Menu.move,
-                                      child: ListTile(
-                                        leading: Icon(Icons.drive_file_move_outlined),
-                                        title: Text("Move to folder"),
-                                      ),
-                                    ),
-                                  if (entity.path != trashPath)
-                                    PopupMenuItem(
-                                      value: Menu.rename,
-                                      child: ListTile(
-                                        leading: Icon(
-                                          Icons.drive_file_rename_outline_rounded,
-                                        ),
-                                        title: Text("Rename"),
-                                      ),
-                                    ),
-                                  if (entity.path != trashPath)
-                                    PopupMenuItem(
-                                      value: Menu.delete,
-                                      child: ListTile(
-                                        leading: Icon(Icons.delete_outlined),
-                                        title: Text("Move to trash"),
-                                      ),
-                                    ),
-                                  if (entity.path == trashPath)
-                                    PopupMenuItem(
-                                      value: Menu.emptyTrash,
-                                      child: ListTile(
-                                        leading: Icon(Icons.delete_outlined),
-                                        title: Text("Empty trash"),
-                                      ),
-                                    ),
-                                ],
-                            onSelected:
-                                (value) => fileExplorerController.onEntityMenuSelected(
-                                  value,
-                                  entity,
-                                ),
-                          ),
-                        ),
-                      ],
-                      onSelectChanged: (value) {},
-                    );
-                  }),
+                    });
+                  },
                 );
-              }
+              },
             );
           },
         );
-      }
+      },
     );
   }
 }

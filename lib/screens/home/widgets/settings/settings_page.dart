@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/nostr_utils/pubkey_to_npub.dart';
+import 'package:lupine/repository.dart';
 import 'package:lupine/screens/home/widgets/settings/settings_controller.dart';
-import 'package:lupine_sdk/lupine_sdk.dart';
+import 'package:nostr_widgets/widgets/widgets.dart';
 
 class SettingsView extends StatelessWidget {
   const SettingsView({super.key});
@@ -14,13 +15,13 @@ class SettingsView extends StatelessWidget {
     return Align(
       alignment: Alignment.topCenter,
       child: SingleChildScrollView(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: 600),
             child: Column(
               children: [
-                SizedBox(height: 16),
-                UserView(),
+                NUserProfile(ndk: Repository.to.ndk),
                 SizedBox(height: 16),
                 RelaysView(),
                 SizedBox(height: 16),
@@ -53,11 +54,11 @@ class UserView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: DriveService().ndk.metadata.loadMetadata(
-        DriveService().ndk.accounts.getPublicKey()!,
+      future: Repository.to.driveService.ndk.metadata.loadMetadata(
+        Repository.to.driveService.ndk.accounts.getPublicKey()!,
       ),
       builder: (context, snapshot) {
-        final pubkey = DriveService().ndk.accounts.getPublicKey()!;
+        final pubkey = Repository.to.driveService.ndk.accounts.getPublicKey()!;
         String? pictureUrl;
         String? displayName;
         if (snapshot.data != null) {
@@ -273,9 +274,10 @@ class BootstrapRelaysView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: DriveService().ndk.userRelayLists.getSingleUserRelayList(
-        DriveService().ndk.accounts.getPublicKey()!,
-      ),
+      future: Repository.to.driveService.ndk.userRelayLists
+          .getSingleUserRelayList(
+            Repository.to.driveService.ndk.accounts.getPublicKey()!,
+          ),
       builder: (context, snapshot) {
         if (snapshot.data == null) return Container();
         final relays = snapshot.data!.relays.keys;

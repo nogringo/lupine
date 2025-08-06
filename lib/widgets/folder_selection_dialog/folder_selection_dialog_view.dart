@@ -4,7 +4,7 @@ import 'package:lupine/widgets/folder_selection_dialog/folder_selection_dialog_c
 import 'package:lupine_sdk/lupine_sdk.dart';
 
 class FolderSelectionDialogView extends StatelessWidget {
-  final DriveEvent entity;
+  final FolderMetadata entity;
 
   const FolderSelectionDialogView(this.entity, {super.key});
 
@@ -15,15 +15,25 @@ class FolderSelectionDialogView extends StatelessWidget {
       builder: (c) {
         return AlertDialog(
           scrollable: true,
-          content: Column(
-            children: List.generate(c.folders.length, (i) {
-              return ListTile(
-                title: Text(c.folders[i].name),
-                onTap: () {
-                  
-                },
+          content: FutureBuilder<List<FolderMetadata>>(
+            future: c.folders,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return Center(child: CircularProgressIndicator());
+              }
+              final folders = snapshot.data!;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(folders.length, (i) {
+                  return ListTile(
+                    title: Text(folders[i].name),
+                    onTap: () {
+                      c.folderPath = folders[i].path;
+                    },
+                  );
+                }),
               );
-            }),
+            },
           ),
           actions: [
             TextButton(
@@ -40,7 +50,7 @@ class FolderSelectionDialogView extends StatelessWidget {
             ),
           ],
         );
-      }
+      },
     );
   }
 }

@@ -12,14 +12,14 @@ class FileExplorerPathView extends StatelessWidget {
       child: GetBuilder<Repository>(
         builder: (repositoryc) {
           List<Widget> children = [];
-      
+
           final buttonList = Repository.to.fileExplorerViewPath.split("/");
-      
+
           for (var i = 0; i < buttonList.length; i++) {
             final e = buttonList[i];
-      
+
             if (e == "") continue;
-      
+
             children.addAll([
               TextButton(
                 onPressed: () {
@@ -32,9 +32,9 @@ class FileExplorerPathView extends StatelessWidget {
               Icon(Icons.chevron_right_rounded),
             ]);
           }
-      
+
           children.removeLast();
-      
+
           return Row(children: children);
         },
       ),

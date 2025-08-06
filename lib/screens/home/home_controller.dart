@@ -3,7 +3,6 @@ import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/home/widgets/explorer_view.dart';
-import 'package:lupine/screens/home/widgets/photos_view.dart';
 import 'package:lupine/screens/home/widgets/settings/settings_page.dart';
 
 class HomeController extends GetxController {
@@ -19,12 +18,12 @@ class HomeController extends GetxController {
         Repository.to.fileExplorerViewPath = myFilesPath;
       },
     ),
-    Destination(
-      icon: Icons.photo_outlined,
-      selectedIcon: Icons.photo,
-      label: 'Photos',
-      view: PhotosView(),
-    ),
+    // Destination(
+    //   icon: Icons.photo_outlined,
+    //   selectedIcon: Icons.photo,
+    //   label: 'Photos',
+    //   view: PhotosView(),
+    // ),
     Destination(
       icon: Icons.delete_outlined,
       selectedIcon: Icons.delete,
@@ -42,7 +41,16 @@ class HomeController extends GetxController {
     ),
   ];
 
+  RxBool expandedRail = false.obs;
+
+  bool _showFABShowOptions = false;
   int _selectedIndex = 0;
+
+  bool get showFABShowOptions => _showFABShowOptions;
+  set showFABShowOptions(bool value) {
+    _showFABShowOptions = value;
+    update();
+  }
 
   int get selectedIndex => _selectedIndex;
   set selectedIndex(int value) {
@@ -56,6 +64,14 @@ class HomeController extends GetxController {
 
   void onDestinationSelected(int value) {
     selectedIndex = value;
+  }
+
+  void toggleFABOptions() {
+    showFABShowOptions = !showFABShowOptions;
+  }
+
+  void closeFABOptions() {
+    showFABShowOptions = false;
   }
 }
 

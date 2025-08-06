@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 import 'package:lupine/repository.dart';
-import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:ndk/entities.dart';
 
 class SettingsController extends GetxController {
@@ -39,19 +38,21 @@ class SettingsController extends GetxController {
   }
 
   void init() async {
-    final pubkey = DriveService().ndk.accounts.getPublicKey()!;
+    final pubkey = Repository.to.driveService.ndk.accounts.getPublicKey()!;
 
-    final userRelayLists = await DriveService().ndk.userRelayLists
+    final userRelayLists = await Repository.to.driveService.ndk.userRelayLists
         .getSingleUserRelayList(pubkey);
-        print(userRelayLists);
 
     if (userRelayLists != null) {
       relaysUrl = userRelayLists.relays.keys.toList();
     }
 
-    final blossomUserServerList = await DriveService().ndk.blossomUserServerList
+    final blossomUserServerList = await Repository
+        .to
+        .driveService
+        .ndk
+        .blossomUserServerList
         .getUserServerList(pubkeys: [pubkey]);
-        print(blossomUserServerList);
 
     if (blossomUserServerList != null) {
       blossomServersUrl = blossomUserServerList;
@@ -71,10 +72,14 @@ class SettingsController extends GetxController {
     relaysUrl.add(url);
     update();
 
-    final broadcastRelays = DriveService().ndk.relays.connectedRelays.map(
-      (e) => e.url,
-    );
-    DriveService().ndk.userRelayLists.broadcastAddNip65Relay(
+    final broadcastRelays = Repository
+        .to
+        .driveService
+        .ndk
+        .relays
+        .connectedRelays
+        .map((e) => e.url);
+    Repository.to.driveService.ndk.userRelayLists.broadcastAddNip65Relay(
       relayUrl: url,
       marker: ReadWriteMarker.readWrite,
       broadcastRelays: broadcastRelays,
@@ -104,7 +109,7 @@ class SettingsController extends GetxController {
     blossomServersUrl.add(url);
     update();
 
-    DriveService().ndk.blossomUserServerList.publishUserServerList(
+    Repository.to.driveService.ndk.blossomUserServerList.publishUserServerList(
       serverUrlsOrdered: blossomServersUrl,
     );
 

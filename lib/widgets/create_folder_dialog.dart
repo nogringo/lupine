@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:lupine/repository.dart';
+import 'package:path/path.dart' as p;
 
 class CreateFolderDialog extends StatelessWidget {
   const CreateFolderDialog({super.key});
@@ -12,25 +13,21 @@ class CreateFolderDialog extends StatelessWidget {
     return AlertDialog(
       title: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text("Create a new folder"),
-          CloseButton(),
-        ],
+        children: [Text("Create a new folder"), CloseButton()],
       ),
       content: TextField(
         controller: fieldController,
         decoration: InputDecoration(labelText: "Folder name"),
         autofocus: true,
         inputFormatters: [
-          FilteringTextInputFormatter.deny(
-            RegExp(r'[\\/:*?"<>|]'),
-          ), // Bloque les caractères interdits
-          FilteringTextInputFormatter.deny(
-            RegExp(r'^\s|\s$'),
-          ), // Bloque les espaces en début/fin
+          FilteringTextInputFormatter.deny(RegExp(r'[\\/:*?"<>|]')),
         ],
         onSubmitted: (value) {
-          Repository.to.createFolder(fieldController.text);
+          final folderPath = p.join(
+            Repository.to.fileExplorerViewPath,
+            fieldController.text,
+          );
+          Repository.to.driveService.createFolder(folderPath);
           Get.back();
         },
       ),
@@ -43,7 +40,11 @@ class CreateFolderDialog extends StatelessWidget {
         ),
         FilledButton(
           onPressed: () {
-            Repository.to.createFolder(fieldController.text);
+            final folderPath = p.join(
+              Repository.to.fileExplorerViewPath,
+              fieldController.text,
+            );
+            Repository.to.driveService.createFolder(folderPath);
             Get.back();
           },
           child: Text("Create"),

@@ -12,7 +12,9 @@ class HomeSmallLayout extends StatelessWidget {
       appBar: getAppBar(),
       body: GetBuilder<HomeController>(
         builder: (explorerController) {
-          return HomeController.destinations.map((e) => e.view).toList()[HomeController.to.selectedIndex];
+          return HomeController.destinations
+              .map((e) => e.view)
+              .toList()[HomeController.to.selectedIndex];
         },
       ),
       bottomNavigationBar: GetBuilder<HomeController>(
@@ -20,11 +22,16 @@ class HomeSmallLayout extends StatelessWidget {
           return NavigationBar(
             selectedIndex: HomeController.to.selectedIndex,
             labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
-            destinations: HomeController.destinations.map((e) => NavigationDestination(
-                selectedIcon: Icon(e.selectedIcon),
-                icon: Icon(e.icon),
-                label: e.label,
-              )).toList(),
+            destinations:
+                HomeController.destinations
+                    .map(
+                      (e) => NavigationDestination(
+                        selectedIcon: Icon(e.selectedIcon),
+                        icon: Icon(e.icon),
+                        label: e.label,
+                      ),
+                    )
+                    .toList(),
             onDestinationSelected: HomeController.to.onDestinationSelected,
           );
         },

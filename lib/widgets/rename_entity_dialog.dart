@@ -3,9 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
+import 'package:path/path.dart' as p;
 
 class RenameEntityDialog extends StatelessWidget {
-  final DriveEvent entity;
+  final DriveItem entity;
 
   const RenameEntityDialog(this.entity, {super.key});
 
@@ -26,15 +27,16 @@ class RenameEntityDialog extends StatelessWidget {
         decoration: InputDecoration(labelText: "Name"),
         autofocus: true,
         inputFormatters: [
-          FilteringTextInputFormatter.deny(
-            RegExp(r'[\\/:*?"<>|]'),
-          ), // Bloque les caractères interdits
-          FilteringTextInputFormatter.deny(
-            RegExp(r'^\s|\s$'),
-          ), // Bloque les espaces en début/fin
+          FilteringTextInputFormatter.deny(RegExp(r'[\\/:*?"<>|]')),
+          FilteringTextInputFormatter.deny(RegExp(r'^\s|\s$')),
         ],
         onSubmitted: (value) {
-          Repository.to.renameEntity(entity, fieldController.text);
+          final directory = p.dirname(entity.path);
+          final newPath = p.join(directory, fieldController.text);
+          Repository.to.driveService.move(
+            oldPath: entity.path,
+            newPath: newPath,
+          );
           Get.back();
         },
       ),
@@ -47,7 +49,12 @@ class RenameEntityDialog extends StatelessWidget {
         ),
         FilledButton(
           onPressed: () {
-            Repository.to.renameEntity(entity, fieldController.text);
+            final directory = p.dirname(entity.path);
+            final newPath = p.join(directory, fieldController.text);
+            Repository.to.driveService.move(
+              oldPath: entity.path,
+              newPath: newPath,
+            );
             Get.back();
           },
           child: Text("Rename"),
