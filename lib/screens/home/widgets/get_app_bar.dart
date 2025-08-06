@@ -1,10 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/constants.dart';
-import 'package:lupine/screens/home/widgets/profile_picture_view.dart';
+import 'package:lupine/repository.dart';
 import 'package:lupine/widgets/desktop/window_buttons.dart';
+import 'package:nostr_widgets/widgets/widgets.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -34,7 +34,7 @@ AppBar getAppBar() {
       return title;
     }(),
     actions: [
-      if (kIsWeb || GetPlatform.isMobile) ProfilePictureView(),
+      NPicture(ndk: Repository.to.ndk),
       SizedBox(width: 8),
       if (isDesktop)
         Align(alignment: Alignment.topCenter, child: WindowButtons()),
