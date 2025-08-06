@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 Future<Database> getDatabase([String dbName = "ndk_cache_manager"]) async {
   if (kIsWeb) {
     var factory = databaseFactoryWeb;
-    return await factory.openDatabase('dbName');
+    return await factory.openDatabase(dbName);
   }
 
   final Directory appDocumentsDir = await getApplicationDocumentsDirectory();
