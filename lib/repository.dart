@@ -62,8 +62,14 @@ class Repository extends GetxController {
     });
   }
 
-  logout() async {
+  Future<void> onLogin() async {
+    await driveService.onAccountChanged();
+    listenEvents();
+  }
+
+  Future<void> logout() async {
     fileExplorerViewPath = "/MyFiles";
+    driveService.dispose();
     Get.offAllNamed(AppRoutes.login);
   }
 

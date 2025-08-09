@@ -43,8 +43,9 @@ class LoginPage extends StatelessWidget {
               NLogin(
                 ndk: Repository.to.ndk,
                 enablePubkeyLogin: false,
-                onLoggedIn: () {
-                  Get.offNamed(AppRoutes.home);
+                onLoggedIn: () async {
+                  await Repository.to.onLogin();
+                  Get.offAllNamed(AppRoutes.home);
                 },
               ),
             ],

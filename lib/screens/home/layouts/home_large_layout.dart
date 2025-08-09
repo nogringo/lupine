@@ -25,7 +25,10 @@ class HomeargeLayout extends StatelessWidget {
                       NavigationRail(
                         leading: Opacity(
                           opacity: 0,
-                          child: FloatingActionButton(onPressed: null),
+                          child: FloatingActionButton(
+                            heroTag: "fab_hidden",
+                            onPressed: null,
+                          ),
                         ),
                         selectedIndex: HomeController.to.selectedIndex,
                         extended: sidebarController.extended,
@@ -46,6 +49,7 @@ class HomeargeLayout extends StatelessWidget {
                         left: 9,
                         top: 8,
                         child: FloatingActionButton.extended(
+                          heroTag: "fab_menu",
                           onPressed: () {
                             showMenu(
                               context: context,

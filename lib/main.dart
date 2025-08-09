@@ -34,6 +34,10 @@ void main() async {
   await repository.init();
 
   await nRestoreAccounts(repository.ndk);
+  
+  if (repository.ndk.accounts.isLoggedIn) {
+    await repository.driveService.onAccountChanged();
+  }
 
   runApp(const MainApp());
 }

@@ -21,7 +21,9 @@ class SettingsView extends StatelessWidget {
             constraints: BoxConstraints(maxWidth: 600),
             child: Column(
               children: [
-                NUserProfile(ndk: Repository.to.ndk),
+                NUserProfile(ndk: Repository.to.ndk, onLogout: () {
+                  Repository.to.logout();
+                },),
                 SizedBox(height: 16),
                 RelaysView(),
                 SizedBox(height: 16),
