@@ -19,6 +19,7 @@ class Repository extends GetxController {
 
   late Ndk ndk;
   late DriveService driveService;
+  late SembastCacheManager cacheManager;
 
   bool isAppLoaded = false;
 
@@ -41,11 +42,10 @@ class Repository extends GetxController {
   Future<void> init() async {
     if (isAppLoaded) return;
 
+    cacheManager = SembastCacheManager(await getDatabase());
+
     ndk = Ndk(
-      NdkConfig(
-        eventVerifier: Bip340EventVerifier(),
-        cache: SembastCacheManager(await getDatabase()),
-      ),
+      NdkConfig(eventVerifier: Bip340EventVerifier(), cache: cacheManager),
     );
 
     driveService = DriveService(ndk: ndk, db: await getDatabase("lupine"));
@@ -57,7 +57,7 @@ class Repository extends GetxController {
 
   void listenEvents() async {
     Repository.to.driveService.changes.listen((change) {
-      print("${change.type} and ${change.path}");
+      // Debug: ${change.type} and ${change.path}
       update();
     });
   }
@@ -165,6 +165,65 @@ class Repository extends GetxController {
       } else if (entity is Directory) {
         await uploadFolder(folderPath: entity.path, destPath: newFolderPath);
       }
+    }
+  }
+
+  Future<String?> generateShareLink(DriveItem entity) async {
+    try {
+      if (entity.eventId == null) {
+        throw Exception('Cannot share item without event ID');
+      }
+
+      // Use the DriveService's generateShareLink method
+      final shareLink = await driveService.generateShareLink(
+        eventId: entity.eventId!,
+        baseUrl: 'https://lupine.app/share',
+      );
+
+      return shareLink;
+    } catch (e) {
+      // Error generating share link: $e
+      toastification.show(
+        context: Get.context,
+        type: ToastificationType.error,
+        style: ToastificationStyle.fillColored,
+        alignment: Alignment.bottomRight,
+        title: Text("Error"),
+        description: Text("Failed to generate share link"),
+      );
+      return null;
+    }
+  }
+
+  Future<void> shareWithPubkey(DriveItem entity, String pubkey) async {
+    try {
+      if (entity.eventId == null) {
+        throw Exception('Cannot share item without event ID');
+      }
+
+      // Use the DriveService's shareWithNostrUser method
+      await driveService.shareWithNostrUser(
+        eventId: entity.eventId!,
+        recipientPubkey: pubkey,
+      );
+
+      toastification.show(
+        context: Get.context,
+        type: ToastificationType.success,
+        style: ToastificationStyle.fillColored,
+        alignment: Alignment.bottomRight,
+        title: Text("Success"),
+        description: Text("File shared with user"),
+      );
+    } catch (e) {
+      toastification.show(
+        context: Get.context,
+        type: ToastificationType.error,
+        style: ToastificationStyle.fillColored,
+        alignment: Alignment.bottomRight,
+        title: Text("Error"),
+        description: Text("Failed to share file: ${e.toString()}"),
+      );
     }
   }
 }

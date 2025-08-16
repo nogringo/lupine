@@ -57,7 +57,10 @@ class HomeargeLayout extends StatelessWidget {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 side: BorderSide(
-                                  color: Theme.of(context).colorScheme.outlineVariant,
+                                  color:
+                                      Theme.of(
+                                        context,
+                                      ).colorScheme.outlineVariant,
                                   width: 1,
                                 ),
                               ),

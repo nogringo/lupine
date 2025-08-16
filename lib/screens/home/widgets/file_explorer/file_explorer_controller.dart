@@ -10,6 +10,7 @@ import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_view.dar
 import 'package:lupine/widgets/folder_selection_dialog/folder_selection_dialog_view.dart';
 import 'package:lupine/widgets/info_dialog.dart';
 import 'package:lupine/widgets/rename_entity_dialog.dart';
+import 'package:lupine/screens/share/share_view.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:path/path.dart' as p;
@@ -87,7 +88,7 @@ class FileExplorerController extends GetxController {
       Get.dialog(InfoDialog(entity));
       return;
     }
-    
+
     if (value == Menu.delete) {
       Repository.to.moveToTrash(entity.path);
       return;
@@ -150,6 +151,11 @@ class FileExplorerController extends GetxController {
 
       return;
     }
+
+    if (value == Menu.share) {
+      Get.dialog(ShareView(entity: entity));
+      return;
+    }
   }
 
   Future<void> _downloadFile(FileMetadata file) async {
@@ -179,7 +185,7 @@ class FileExplorerController extends GetxController {
         autoCloseDuration: Duration(seconds: 3),
       );
     } catch (e) {
-      print(e);
+      // Error downloading file: $e
       toastification.show(
         context: Get.context!,
         type: ToastificationType.error,

@@ -80,6 +80,11 @@ class FileExplorerContextMenu {
         ),
       if (!isInTrashcan)
         PopupMenuItem(
+          value: Menu.share,
+          child: ListTile(leading: Icon(Icons.share), title: Text("Share")),
+        ),
+      if (!isInTrashcan)
+        PopupMenuItem(
           value: Menu.move,
           child: ListTile(
             leading: Icon(Icons.drive_file_move_outlined),

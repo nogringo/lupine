@@ -23,16 +23,10 @@ class InfoDialog extends StatelessWidget {
           Expanded(
             child: Row(
               children: [
-                Icon(
-                  isFile ? Icons.insert_drive_file : Icons.folder,
-                  size: 24,
-                ),
+                Icon(isFile ? Icons.insert_drive_file : Icons.folder, size: 24),
                 SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    entity.name,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text(entity.name, overflow: TextOverflow.ellipsis),
                 ),
               ],
             ),
@@ -77,12 +71,7 @@ class InfoDialog extends StatelessWidget {
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Get.back(),
-          child: Text('Close'),
-        ),
-      ],
+      actions: [TextButton(onPressed: () => Get.back(), child: Text('Close'))],
     );
   }
 
@@ -125,10 +114,7 @@ class InfoDialog extends StatelessWidget {
                   IconButton(
                     icon: Icon(Icons.copy, size: 16),
                     padding: EdgeInsets.zero,
-                    constraints: BoxConstraints(
-                      minWidth: 32,
-                      minHeight: 32,
-                    ),
+                    constraints: BoxConstraints(minWidth: 32, minHeight: 32),
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: value));
                       toastification.show(

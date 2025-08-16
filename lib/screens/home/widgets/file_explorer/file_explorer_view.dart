@@ -20,6 +20,7 @@ enum Menu {
   restore,
   deleteForever,
   info,
+  share,
 }
 
 class FileExplorerView extends StatelessWidget {

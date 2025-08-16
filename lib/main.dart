@@ -34,7 +34,7 @@ void main() async {
   await repository.init();
 
   await nRestoreAccounts(repository.ndk);
-  
+
   if (repository.ndk.accounts.isLoggedIn) {
     await repository.driveService.onAccountChanged();
   }
@@ -52,7 +52,7 @@ class MainApp extends StatelessWidget {
         final supportAccentColor = defaultTargetPlatform.supportsAccentColor;
         Color accentColor =
             supportAccentColor ? accent.accent : accent.defaultAccentColor;
-        if (kIsWeb) accentColor = const Color(0xFF6A5ACD);
+        if (kIsWeb) accentColor = Colors.teal;
 
         ThemeData getTheme([Brightness? brightness]) {
           brightness = brightness ?? Brightness.light;
