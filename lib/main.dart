@@ -9,6 +9,7 @@ import 'package:lupine/middlewares/router_login_middleware.dart';
 import 'package:lupine/screens/home/home_page.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/login/login_page.dart';
+import 'package:lupine/screens/user_profile/user_profile_page.dart';
 import 'package:nostr_widgets/functions/functions.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter/foundation.dart';
@@ -99,6 +100,11 @@ class MainApp extends StatelessWidget {
                 middlewares: [RouterLoginMiddleware()],
               ),
               GetPage(name: AppRoutes.login, page: () => const LoginPage()),
+              GetPage(
+                name: AppRoutes.userProfile,
+                page: () => const UserProfilePage(),
+                middlewares: [RouterLoginMiddleware()],
+              ),
             ],
           ),
         );

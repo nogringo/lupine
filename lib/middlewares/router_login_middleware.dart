@@ -7,7 +7,7 @@ import '../app_routes.dart';
 class RouterLoginMiddleware extends GetMiddleware {
   @override
   RouteSettings? redirect(String? route) {
-    if (Repository.to.driveService.ndk.accounts.isNotLoggedIn) {
+    if (Repository.to.ndk.accounts.isNotLoggedIn) {
       return const RouteSettings(name: AppRoutes.login);
     }
     return null;

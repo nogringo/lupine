@@ -2,12 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_controller.dart';
-import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_grid_view.dart';
 import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_list_view.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
-
-export 'package:lupine/screens/home/widgets/file_explorer/file_explorer_controller.dart'
-    show ViewMode;
 
 enum Menu {
   download,
@@ -58,21 +54,11 @@ class FileExplorerView extends StatelessWidget {
 
                 return LayoutBuilder(
                   builder: (context, constraints) {
-                    return Obx(() {
-                      if (fileExplorerController.viewMode.value ==
-                          ViewMode.grid) {
-                        return FileExplorerGridView(
-                          entities: entities,
-                          controller: fileExplorerController,
-                        );
-                      } else {
-                        return FileExplorerListView(
-                          entities: entities,
-                          controller: fileExplorerController,
-                          constraints: constraints,
-                        );
-                      }
-                    });
+                    return FileExplorerListView(
+                      entities: entities,
+                      controller: fileExplorerController,
+                      constraints: constraints,
+                    );
                   },
                 );
               },

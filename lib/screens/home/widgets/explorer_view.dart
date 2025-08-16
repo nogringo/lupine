@@ -21,20 +21,6 @@ class ExplorerView extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(child: FileExplorerPathView()),
-                  Obx(
-                    () => IconButton(
-                      icon: Icon(
-                        fileExplorerController.viewMode.value == ViewMode.list
-                            ? Icons.grid_view_rounded
-                            : Icons.list_rounded,
-                      ),
-                      onPressed: fileExplorerController.toggleViewMode,
-                      tooltip:
-                          fileExplorerController.viewMode.value == ViewMode.list
-                              ? 'Grid view'
-                              : 'List view',
-                    ),
-                  ),
                   IconButton(
                     onPressed: () {
                       Get.dialog(CreateFolderDialog());

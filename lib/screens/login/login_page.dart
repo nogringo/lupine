@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:lupine/app_routes.dart';
 import 'package:lupine/constants.dart';
 import 'package:lupine/repository.dart';
+import 'package:lupine/screens/login/login_controller.dart';
 import 'package:lupine/widgets/desktop/window_buttons.dart';
 import 'package:nostr_widgets/nostr_widgets.dart';
 import 'package:window_manager/window_manager.dart';
@@ -12,6 +12,8 @@ class LoginPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = Get.put(LoginController());
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -40,13 +42,15 @@ class LoginPage extends StatelessWidget {
                 style: Theme.of(context).textTheme.displaySmall,
               ),
               SizedBox(height: 32),
-              NLogin(
-                ndk: Repository.to.ndk,
-                enablePubkeyLogin: false,
-                onLoggedIn: () async {
-                  await Repository.to.onLogin();
-                  Get.offAllNamed(AppRoutes.home);
-                },
+              Obx(
+                () =>
+                    controller.isLoading.value
+                        ? Center(child: CircularProgressIndicator())
+                        : NLogin(
+                          ndk: Repository.to.ndk,
+                          enablePubkeyLogin: false,
+                          onLoggedIn: controller.onLoggedIn,
+                        ),
               ),
             ],
           ),

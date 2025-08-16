@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
-import 'package:lupine/nostr_utils/pubkey_to_npub.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/home/widgets/settings/settings_controller.dart';
 import 'package:nostr_widgets/widgets/widgets.dart';
@@ -49,43 +48,6 @@ class SettingsView extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class UserView extends StatelessWidget {
-  const UserView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder(
-      future: Repository.to.driveService.ndk.metadata.loadMetadata(
-        Repository.to.driveService.ndk.accounts.getPublicKey()!,
-      ),
-      builder: (context, snapshot) {
-        final pubkey = Repository.to.driveService.ndk.accounts.getPublicKey()!;
-        String? pictureUrl;
-        String? displayName;
-        if (snapshot.data != null) {
-          pictureUrl = snapshot.data!.picture;
-          displayName = snapshot.data!.getName();
-        }
-        pictureUrl ??= "https://robohash.org/$pubkey";
-        displayName ??= pubkeyToNpub(pubkey);
-
-        return ListTile(
-          leading: CircleAvatar(backgroundImage: NetworkImage(pictureUrl)),
-          title: Text(
-            displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: IconButton(
-            onPressed: SettingsController.to.logout,
-            icon: Icon(Icons.logout),
-          ),
-        );
-      },
     );
   }
 }
@@ -279,9 +241,9 @@ class BootstrapRelaysView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: Repository.to.driveService.ndk.userRelayLists
+      future: Repository.to.ndk.userRelayLists
           .getSingleUserRelayList(
-            Repository.to.driveService.ndk.accounts.getPublicKey()!,
+            Repository.to.ndk.accounts.getPublicKey()!,
           ),
       builder: (context, snapshot) {
         if (snapshot.data == null) return Container();

@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/constants.dart';
-import 'package:lupine/repository.dart';
+import 'package:lupine/screens/home/widgets/user_avatar_with_badge.dart';
 import 'package:lupine/widgets/desktop/window_buttons.dart';
-import 'package:nostr_widgets/widgets/widgets.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -34,7 +33,7 @@ AppBar getAppBar() {
       return title;
     }(),
     actions: [
-      NPicture(ndk: Repository.to.ndk),
+      UserAvatarWithBadge(),
       SizedBox(width: 8),
       if (isDesktop)
         Align(alignment: Alignment.topCenter, child: WindowButtons()),

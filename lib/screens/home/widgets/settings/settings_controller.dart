@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
+import 'package:lupine/controllers/server_status_controller.dart';
 import 'package:lupine/repository.dart';
 import 'package:ndk/entities.dart';
 
@@ -38,9 +39,9 @@ class SettingsController extends GetxController {
   }
 
   void init() async {
-    final pubkey = Repository.to.driveService.ndk.accounts.getPublicKey()!;
+    final pubkey = Repository.to.ndk.accounts.getPublicKey()!;
 
-    final userRelayLists = await Repository.to.driveService.ndk.userRelayLists
+    final userRelayLists = await Repository.to.ndk.userRelayLists
         .getSingleUserRelayList(pubkey);
 
     if (userRelayLists != null) {
@@ -79,11 +80,16 @@ class SettingsController extends GetxController {
         .relays
         .connectedRelays
         .map((e) => e.url);
-    Repository.to.driveService.ndk.userRelayLists.broadcastAddNip65Relay(
+    Repository.to.ndk.userRelayLists.broadcastAddNip65Relay(
       relayUrl: url,
       marker: ReadWriteMarker.readWrite,
       broadcastRelays: broadcastRelays,
     );
+
+    // Update server status
+    if (Get.isRegistered<ServerStatusController>()) {
+      ServerStatusController.to.checkServerStatus();
+    }
 
     return true;
   }
@@ -109,9 +115,14 @@ class SettingsController extends GetxController {
     blossomServersUrl.add(url);
     update();
 
-    Repository.to.driveService.ndk.blossomUserServerList.publishUserServerList(
+    Repository.to.ndk.blossomUserServerList.publishUserServerList(
       serverUrlsOrdered: blossomServersUrl,
     );
+
+    // Update server status
+    if (Get.isRegistered<ServerStatusController>()) {
+      ServerStatusController.to.checkServerStatus();
+    }
 
     return true;
   }

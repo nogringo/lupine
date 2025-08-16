@@ -93,8 +93,9 @@ class FileExplorerListView extends StatelessWidget {
                               if (draggedItem.path == entity.path) return false;
                               if (entity.path.startsWith(
                                 '${draggedItem.path}/',
-                              ))
+                              )) {
                                 return false;
+                              }
                               return true;
                             },
                             onAcceptWithDetails: (details) {
