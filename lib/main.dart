@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:lupine/app_routes.dart';
+import 'package:lupine/config.dart';
 import 'package:lupine/constants.dart';
 import 'package:lupine/l10n/app_localizations.dart';
 import 'package:lupine/middlewares/router_login_middleware.dart';
@@ -20,7 +21,7 @@ import 'package:nostr_widgets/l10n/app_localizations.dart' as nostr_widgets;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await GetStorage.init();
+  await GetStorage.init(appTitle);
   await SystemTheme.accentColor.load();
 
   if (isDesktop) {

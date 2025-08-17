@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/screens/home/widgets/file_explorer/file_explorer_view.dart';
@@ -73,12 +72,7 @@ class FileExplorerContextMenu {
             title: Text("Rename"),
           ),
         ),
-      if (!isInTrashcan && !kIsWeb)
-        PopupMenuItem(
-          value: Menu.sync,
-          child: ListTile(leading: Icon(Icons.sync), title: Text("Sync")),
-        ),
-      if (!isInTrashcan)
+      if (!isInTrashcan && entity.isFile)
         PopupMenuItem(
           value: Menu.share,
           child: ListTile(leading: Icon(Icons.share), title: Text("Share")),
@@ -90,11 +84,6 @@ class FileExplorerContextMenu {
             leading: Icon(Icons.drive_file_move_outlined),
             title: Text("Move"),
           ),
-        ),
-      if (!isInTrashcan)
-        PopupMenuItem(
-          value: Menu.copy,
-          child: ListTile(leading: Icon(Icons.copy), title: Text("Copy")),
         ),
       if (!isInTrashcan && entity.isFile)
         PopupMenuItem(

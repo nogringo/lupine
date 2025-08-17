@@ -1,12 +1,13 @@
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:lupine/config.dart';
 import 'package:lupine/repository.dart';
 
 class SidebarController extends GetxController {
   static SidebarController get to => Get.find();
 
-  final _storage = GetStorage();
-  late bool _extended = GetStorage().read('navigationRailExtended') ?? true;
+  final _storage = GetStorage(appTitle);
+  late bool _extended = _storage.read('navigationRailExtended') ?? true;
 
   bool get extended => _extended;
   set extended(bool value) {

@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -123,13 +122,6 @@ class FileExplorerController extends GetxController {
       return;
     }
 
-    if (value == Menu.sync) {
-      String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-
-      if (selectedDirectory == null) return;
-
-      return;
-    }
 
     if (value == Menu.share) {
       _shareEntity(entity);

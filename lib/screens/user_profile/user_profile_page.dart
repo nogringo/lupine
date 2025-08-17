@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:lupine/constants.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/user_profile/user_profile_controller.dart';
+import 'package:lupine/widgets/desktop/window_buttons.dart';
 import 'package:nostr_widgets/nostr_widgets.dart';
+import 'package:window_manager/window_manager.dart';
 
 class UserProfilePage extends StatelessWidget {
   const UserProfilePage({super.key});
@@ -12,7 +15,24 @@ class UserProfilePage extends StatelessWidget {
     final controller = Get.put(UserProfileController());
 
     return Scaffold(
-      appBar: AppBar(title: Text('Profile')),
+      appBar: isDesktop
+          ? PreferredSize(
+              preferredSize: Size.fromHeight(kToolbarHeight),
+              child: DragToMoveArea(
+                child: AppBar(
+                  title: Text('Profile'),
+                  actions: [
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: WindowButtons(),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : AppBar(
+              title: Text('Profile'),
+            ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
         child: Center(
@@ -67,9 +87,16 @@ class UserProfilePage extends StatelessWidget {
                       SizedBox(height: 8),
                       // List of relays in the middle
                       Expanded(
-                        child: GetBuilder<UserProfileController>(
-                          builder: (c) {
-                            if (c.relaysUrl.isEmpty) {
+                        child: Obx(() {
+                          if (controller.relaysLoading.value) {
+                            return Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          
+                          return GetBuilder<UserProfileController>(
+                            builder: (c) {
+                              if (c.relaysUrl.isEmpty) {
                               return Container(
                                 padding: EdgeInsets.all(24),
                                 alignment: Alignment.center,
@@ -156,7 +183,8 @@ class UserProfilePage extends StatelessWidget {
                                       .toList(),
                             );
                           },
-                        ),
+                        );
+                        }),
                       ),
                       SizedBox(height: 12),
                       // Text field at the bottom with stadium border
@@ -234,9 +262,16 @@ class UserProfilePage extends StatelessWidget {
                       SizedBox(height: 8),
                       // List of storage servers in the middle
                       Expanded(
-                        child: GetBuilder<UserProfileController>(
-                          builder: (c) {
-                            if (c.blossomServersUrl.isEmpty) {
+                        child: Obx(() {
+                          if (controller.blossomServersLoading.value) {
+                            return Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          
+                          return GetBuilder<UserProfileController>(
+                            builder: (c) {
+                              if (c.blossomServersUrl.isEmpty) {
                               return Container(
                                 padding: EdgeInsets.all(24),
                                 alignment: Alignment.center,
@@ -332,7 +367,8 @@ class UserProfilePage extends StatelessWidget {
                                       .toList(),
                             );
                           },
-                        ),
+                        );
+                        }),
                       ),
                       SizedBox(height: 12),
                       // Text field at the bottom with stadium border

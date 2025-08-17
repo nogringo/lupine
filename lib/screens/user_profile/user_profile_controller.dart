@@ -18,6 +18,11 @@ class UserProfileController extends GetxController {
   RxBool isLoading = false.obs;
   RxBool relaysModified = false.obs;
   RxBool blossomServersModified = false.obs;
+  
+  // Loading states for each section
+  RxBool relaysLoading = true.obs;
+  RxBool blossomServersLoading = true.obs;
+  RxBool backupFoldersLoading = true.obs;
 
   bool _showDiscoverRelays = false;
   bool get showDiscoverRelays => _showDiscoverRelays;
@@ -47,10 +52,17 @@ class UserProfileController extends GetxController {
   }
 
   Future<void> loadServers() async {
-    isLoading.value = true;
+    // Load relays and blossom servers in parallel
+    await Future.wait([
+      _loadRelays(),
+      _loadBlossomServers(),
+    ]);
+  }
+
+  Future<void> _loadRelays() async {
+    relaysLoading.value = true;
     try {
       final pubkey = Repository.to.ndk.accounts.getPublicKey()!;
-
       final userRelayLists = await Repository.to.ndk.userRelayLists
           .getSingleUserRelayList(pubkey);
 
@@ -58,10 +70,18 @@ class UserProfileController extends GetxController {
         relaysUrl = userRelayLists.relays.keys.toList();
         originalRelaysUrl = List.from(relaysUrl);
       }
+      update();
+    } finally {
+      relaysLoading.value = false;
+    }
+  }
 
+  Future<void> _loadBlossomServers() async {
+    blossomServersLoading.value = true;
+    try {
+      final pubkey = Repository.to.ndk.accounts.getPublicKey()!;
       final blossomUserServerList = await Repository
           .to
-          .driveService
           .ndk
           .blossomUserServerList
           .getUserServerList(pubkeys: [pubkey]);
@@ -70,10 +90,9 @@ class UserProfileController extends GetxController {
         blossomServersUrl = blossomUserServerList;
         originalBlossomServersUrl = List.from(blossomServersUrl);
       }
-
       update();
     } finally {
-      isLoading.value = false;
+      blossomServersLoading.value = false;
     }
   }
 
@@ -196,9 +215,10 @@ class UserProfileController extends GetxController {
     isLoading.value = true;
     try {
       // Publish the updated server list
-      Repository.to.ndk.blossomUserServerList.publishUserServerList(
+      await Repository.to.ndk.blossomUserServerList.publishUserServerList(
         serverUrlsOrdered: blossomServersUrl,
       );
+      // Broadcast results available in res if needed
 
       originalBlossomServersUrl = List.from(blossomServersUrl);
       blossomServersModified.value = false;
