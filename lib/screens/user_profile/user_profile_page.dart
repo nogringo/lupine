@@ -15,24 +15,23 @@ class UserProfilePage extends StatelessWidget {
     final controller = Get.put(UserProfileController());
 
     return Scaffold(
-      appBar: isDesktop
-          ? PreferredSize(
-              preferredSize: Size.fromHeight(kToolbarHeight),
-              child: DragToMoveArea(
-                child: AppBar(
-                  title: Text('Profile'),
-                  actions: [
-                    Align(
-                      alignment: Alignment.topCenter,
-                      child: WindowButtons(),
-                    ),
-                  ],
+      appBar:
+          isDesktop
+              ? PreferredSize(
+                preferredSize: Size.fromHeight(kToolbarHeight),
+                child: DragToMoveArea(
+                  child: AppBar(
+                    title: Text('Profile'),
+                    actions: [
+                      Align(
+                        alignment: Alignment.topCenter,
+                        child: WindowButtons(),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            )
-          : AppBar(
-              title: Text('Profile'),
-            ),
+              )
+              : AppBar(title: Text('Profile')),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
         child: Center(
@@ -89,101 +88,101 @@ class UserProfilePage extends StatelessWidget {
                       Expanded(
                         child: Obx(() {
                           if (controller.relaysLoading.value) {
-                            return Center(
-                              child: CircularProgressIndicator(),
-                            );
+                            return Center(child: CircularProgressIndicator());
                           }
-                          
+
                           return GetBuilder<UserProfileController>(
                             builder: (c) {
                               if (c.relaysUrl.isEmpty) {
-                              return Container(
-                                padding: EdgeInsets.all(24),
-                                alignment: Alignment.center,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.warning_amber_rounded,
-                                      size: 48,
-                                      color:
-                                          Theme.of(context).colorScheme.error,
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'No relays configured',
-                                      style:
-                                          Theme.of(
-                                            context,
-                                          ).textTheme.bodyMedium,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
+                                return Container(
+                                  padding: EdgeInsets.all(24),
+                                  alignment: Alignment.center,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.warning_amber_rounded,
+                                        size: 48,
+                                        color:
+                                            Theme.of(context).colorScheme.error,
+                                      ),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        'No relays configured',
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.bodyMedium,
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
 
-                            return ListView(
-                              shrinkWrap: true,
-                              children:
-                                  c.relaysUrl
-                                      .map(
-                                        (relay) => ListTile(
-                                          leading: Icon(Icons.dns),
-                                          title: Text(relay),
-                                          trailing: IconButton(
-                                            icon: Icon(Icons.close),
-                                            onPressed: () {
-                                              showDialog(
-                                                context: context,
-                                                builder:
-                                                    (context) => AlertDialog(
-                                                      title: Text(
-                                                        'Remove Relay',
-                                                      ),
-                                                      content: Text(
-                                                        'Are you sure you want to remove this relay?\n\n$relay',
-                                                      ),
-                                                      actions: [
-                                                        TextButton(
-                                                          onPressed:
-                                                              () =>
-                                                                  Navigator.pop(
-                                                                    context,
-                                                                  ),
-                                                          child: Text('Cancel'),
+                              return ListView(
+                                shrinkWrap: true,
+                                children:
+                                    c.relaysUrl
+                                        .map(
+                                          (relay) => ListTile(
+                                            leading: Icon(Icons.dns),
+                                            title: Text(relay),
+                                            trailing: IconButton(
+                                              icon: Icon(Icons.close),
+                                              onPressed: () {
+                                                showDialog(
+                                                  context: context,
+                                                  builder:
+                                                      (context) => AlertDialog(
+                                                        title: Text(
+                                                          'Remove Relay',
                                                         ),
-                                                        TextButton(
-                                                          onPressed: () {
-                                                            Navigator.pop(
-                                                              context,
-                                                            );
-                                                            c.removeRelay(
-                                                              relay,
-                                                            );
-                                                          },
-                                                          child: Text(
-                                                            'Remove',
-                                                            style: TextStyle(
-                                                              color:
-                                                                  Theme.of(
-                                                                        context,
-                                                                      )
-                                                                      .colorScheme
-                                                                      .error,
+                                                        content: Text(
+                                                          'Are you sure you want to remove this relay?\n\n$relay',
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed:
+                                                                () =>
+                                                                    Navigator.pop(
+                                                                      context,
+                                                                    ),
+                                                            child: Text(
+                                                              'Cancel',
                                                             ),
                                                           ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                              );
-                                            },
+                                                          TextButton(
+                                                            onPressed: () {
+                                                              Navigator.pop(
+                                                                context,
+                                                              );
+                                                              c.removeRelay(
+                                                                relay,
+                                                              );
+                                                            },
+                                                            child: Text(
+                                                              'Remove',
+                                                              style: TextStyle(
+                                                                color:
+                                                                    Theme.of(
+                                                                          context,
+                                                                        )
+                                                                        .colorScheme
+                                                                        .error,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                );
+                                              },
+                                            ),
                                           ),
-                                        ),
-                                      )
-                                      .toList(),
-                            );
-                          },
-                        );
+                                        )
+                                        .toList(),
+                              );
+                            },
+                          );
                         }),
                       ),
                       SizedBox(height: 12),
@@ -264,110 +263,112 @@ class UserProfilePage extends StatelessWidget {
                       Expanded(
                         child: Obx(() {
                           if (controller.blossomServersLoading.value) {
-                            return Center(
-                              child: CircularProgressIndicator(),
-                            );
+                            return Center(child: CircularProgressIndicator());
                           }
-                          
+
                           return GetBuilder<UserProfileController>(
                             builder: (c) {
                               if (c.blossomServersUrl.isEmpty) {
-                              return Container(
-                                padding: EdgeInsets.all(24),
-                                alignment: Alignment.center,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.error,
-                                      size: 48,
-                                      color:
-                                          Theme.of(context).colorScheme.error,
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'No storage servers configured',
-                                      style:
-                                          Theme.of(
-                                            context,
-                                          ).textTheme.bodyMedium,
-                                    ),
-                                    Text(
-                                      'Files cannot be stored without servers',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall?.copyWith(
+                                return Container(
+                                  padding: EdgeInsets.all(24),
+                                  alignment: Alignment.center,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.error,
+                                        size: 48,
                                         color:
                                             Theme.of(context).colorScheme.error,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
+                                      SizedBox(height: 8),
+                                      Text(
+                                        'No storage servers configured',
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.bodyMedium,
+                                      ),
+                                      Text(
+                                        'Files cannot be stored without servers',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall?.copyWith(
+                                          color:
+                                              Theme.of(
+                                                context,
+                                              ).colorScheme.error,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
 
-                            return ListView(
-                              shrinkWrap: true,
-                              children:
-                                  c.blossomServersUrl
-                                      .map(
-                                        (server) => ListTile(
-                                          leading: Icon(Icons.storage),
-                                          title: Text(server),
-                                          trailing: IconButton(
-                                            icon: Icon(Icons.close),
-                                            onPressed: () {
-                                              showDialog(
-                                                context: context,
-                                                builder:
-                                                    (context) => AlertDialog(
-                                                      title: Text(
-                                                        'Remove Storage Server',
-                                                      ),
-                                                      content: Text(
-                                                        'Are you sure you want to remove this storage server?\n\n$server',
-                                                      ),
-                                                      actions: [
-                                                        TextButton(
-                                                          onPressed:
-                                                              () =>
-                                                                  Navigator.pop(
-                                                                    context,
-                                                                  ),
-                                                          child: Text('Cancel'),
+                              return ListView(
+                                shrinkWrap: true,
+                                children:
+                                    c.blossomServersUrl
+                                        .map(
+                                          (server) => ListTile(
+                                            leading: Icon(Icons.storage),
+                                            title: Text(server),
+                                            trailing: IconButton(
+                                              icon: Icon(Icons.close),
+                                              onPressed: () {
+                                                showDialog(
+                                                  context: context,
+                                                  builder:
+                                                      (context) => AlertDialog(
+                                                        title: Text(
+                                                          'Remove Storage Server',
                                                         ),
-                                                        TextButton(
-                                                          onPressed: () {
-                                                            Navigator.pop(
-                                                              context,
-                                                            );
-                                                            c.removeBlossomServer(
-                                                              server,
-                                                            );
-                                                          },
-                                                          child: Text(
-                                                            'Remove',
-                                                            style: TextStyle(
-                                                              color:
-                                                                  Theme.of(
-                                                                        context,
-                                                                      )
-                                                                      .colorScheme
-                                                                      .error,
+                                                        content: Text(
+                                                          'Are you sure you want to remove this storage server?\n\n$server',
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed:
+                                                                () =>
+                                                                    Navigator.pop(
+                                                                      context,
+                                                                    ),
+                                                            child: Text(
+                                                              'Cancel',
                                                             ),
                                                           ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                              );
-                                            },
+                                                          TextButton(
+                                                            onPressed: () {
+                                                              Navigator.pop(
+                                                                context,
+                                                              );
+                                                              c.removeBlossomServer(
+                                                                server,
+                                                              );
+                                                            },
+                                                            child: Text(
+                                                              'Remove',
+                                                              style: TextStyle(
+                                                                color:
+                                                                    Theme.of(
+                                                                          context,
+                                                                        )
+                                                                        .colorScheme
+                                                                        .error,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                );
+                                              },
+                                            ),
                                           ),
-                                        ),
-                                      )
-                                      .toList(),
-                            );
-                          },
-                        );
+                                        )
+                                        .toList(),
+                              );
+                            },
+                          );
                         }),
                       ),
                       SizedBox(height: 12),

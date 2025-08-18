@@ -122,7 +122,6 @@ class FileExplorerController extends GetxController {
       return;
     }
 
-
     if (value == Menu.share) {
       _shareEntity(entity);
       return;
@@ -133,11 +132,11 @@ class FileExplorerController extends GetxController {
     try {
       // Generate share link
       final shareLink = await Repository.to.generateShareLink(entity);
-      
+
       if (shareLink != null) {
         // Copy to clipboard
         await Clipboard.setData(ClipboardData(text: shareLink));
-        
+
         // Show success toast
         toastification.show(
           context: Get.context,

@@ -10,6 +10,7 @@ import 'package:lupine/middlewares/router_login_middleware.dart';
 import 'package:lupine/screens/home/home_page.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/login/login_page.dart';
+import 'package:lupine/screens/share/share_page.dart';
 import 'package:lupine/screens/user_profile/user_profile_page.dart';
 import 'package:nostr_widgets/functions/functions.dart';
 import 'package:system_theme/system_theme.dart';
@@ -84,6 +85,7 @@ class MainApp extends StatelessWidget {
 
         return ToastificationWrapper(
           child: GetMaterialApp(
+            title: appTitle,
             theme: getTheme(),
             darkTheme: getTheme(Brightness.dark),
             localizationsDelegates: [
@@ -105,6 +107,11 @@ class MainApp extends StatelessWidget {
                 name: AppRoutes.userProfile,
                 page: () => const UserProfilePage(),
                 middlewares: [RouterLoginMiddleware()],
+              ),
+              GetPage(
+                name: AppRoutes.share,
+                page: () => const SharePage(),
+                middlewares: [],
               ),
             ],
           ),

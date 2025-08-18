@@ -18,7 +18,7 @@ class UserProfileController extends GetxController {
   RxBool isLoading = false.obs;
   RxBool relaysModified = false.obs;
   RxBool blossomServersModified = false.obs;
-  
+
   // Loading states for each section
   RxBool relaysLoading = true.obs;
   RxBool blossomServersLoading = true.obs;
@@ -53,10 +53,7 @@ class UserProfileController extends GetxController {
 
   Future<void> loadServers() async {
     // Load relays and blossom servers in parallel
-    await Future.wait([
-      _loadRelays(),
-      _loadBlossomServers(),
-    ]);
+    await Future.wait([_loadRelays(), _loadBlossomServers()]);
   }
 
   Future<void> _loadRelays() async {

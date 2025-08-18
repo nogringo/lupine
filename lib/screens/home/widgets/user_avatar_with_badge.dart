@@ -49,10 +49,7 @@ class UserAvatarWithBadge extends StatelessWidget {
         );
 
         if (showBadge) {
-          return Tooltip(
-            message: tooltipMessage,
-            child: clickableAvatar,
-          );
+          return Tooltip(message: tooltipMessage, child: clickableAvatar);
         }
 
         return clickableAvatar;

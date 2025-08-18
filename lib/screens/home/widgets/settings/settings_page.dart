@@ -241,10 +241,9 @@ class BootstrapRelaysView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: Repository.to.ndk.userRelayLists
-          .getSingleUserRelayList(
-            Repository.to.ndk.accounts.getPublicKey()!,
-          ),
+      future: Repository.to.ndk.userRelayLists.getSingleUserRelayList(
+        Repository.to.ndk.accounts.getPublicKey()!,
+      ),
       builder: (context, snapshot) {
         if (snapshot.data == null) return Container();
         final relays = snapshot.data!.relays.keys;
