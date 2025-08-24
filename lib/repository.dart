@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:lupine/app_routes.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/get_database.dart';
+import 'package:lupine/nostr_utils/no_event_verifier.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
 import 'package:mime/mime.dart';
 import 'package:ndk/ndk.dart';
@@ -44,9 +45,7 @@ class Repository extends GetxController {
 
     cacheManager = SembastCacheManager(await getDatabase());
 
-    ndk = Ndk(
-      NdkConfig(eventVerifier: Bip340EventVerifier(), cache: cacheManager),
-    );
+    ndk = Ndk(NdkConfig(eventVerifier: NoEventVerifier(), cache: cacheManager));
 
     driveService = DriveService(ndk: ndk, db: await getDatabase("lupine"));
 

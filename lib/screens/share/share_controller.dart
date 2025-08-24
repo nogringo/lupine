@@ -90,7 +90,8 @@ class ShareController extends GetxController {
       }
 
       DecryptionInfo? decryptionInfo;
-      if (driveItem!.decryptionKey != null && driveItem!.decryptionNonce != null) {
+      if (driveItem!.decryptionKey != null &&
+          driveItem!.decryptionNonce != null) {
         decryptionInfo = DecryptionInfo(
           key: driveItem!.decryptionKey!,
           nonce: driveItem!.decryptionNonce!,
