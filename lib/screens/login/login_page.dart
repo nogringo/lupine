@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:lupine/config.dart';
 import 'package:lupine/constants.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine/screens/login/login_controller.dart';
 import 'package:lupine/widgets/desktop/window_buttons.dart';
+import 'package:ndk/domain_layer/usecases/bunkers/models/nostr_connect.dart';
 import 'package:nostr_widgets/nostr_widgets.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -49,6 +51,10 @@ class LoginPage extends StatelessWidget {
                         : NLogin(
                           ndk: Repository.to.ndk,
                           enablePubkeyLogin: false,
+                          nostrConnect: NostrConnect(
+                            relays: ["wss://relay.nsec.app"],
+                            appName: appTitle,
+                          ),
                           onLoggedIn: controller.onLoggedIn,
                         ),
               ),

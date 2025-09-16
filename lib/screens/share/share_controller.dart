@@ -23,7 +23,7 @@ class ShareController extends GetxController {
     init();
   }
 
-  init() {
+  void init() {
     linkInfo = parseShareLink(Get.currentRoute);
 
     if (linkInfo!.isPasswordProtected) {
@@ -37,7 +37,7 @@ class ShareController extends GetxController {
     update();
   }
 
-  unlock() async {
+  Future<void> unlock() async {
     try {
       privateKey = await Nip49.decrypt(
         linkInfo!.encodedPrivateKey,
@@ -56,7 +56,7 @@ class ShareController extends GetxController {
     }
   }
 
-  loadFile() async {
+  Future<void> loadFile() async {
     if (privateKey == null || linkInfo == null) return;
 
     driveItem = await accessSharedFile(
@@ -67,7 +67,7 @@ class ShareController extends GetxController {
     update();
   }
 
-  downloadFile() async {
+  Future<void> downloadFile() async {
     if (linkInfo == null || driveItem == null) return;
 
     isDownloading.value = true;

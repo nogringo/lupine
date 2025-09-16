@@ -10,4 +10,19 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get helloWorld => 'Bonjour monde !';
+
+  @override
+  String get settings => 'Paramètres';
+
+  @override
+  String get switchAccount => 'Changer de compte';
+
+  @override
+  String get switchOrAddAccount => 'Changer ou ajouter un compte';
+
+  @override
+  String get addAnotherAccount => 'Ajouter un autre compte';
+
+  @override
+  String get signOut => 'Se déconnecter';
 }

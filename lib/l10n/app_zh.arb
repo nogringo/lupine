@@ -1,0 +1,8 @@
+{
+    "helloWorld": "你好，世界！",
+    "settings": "设置",
+    "switchAccount": "切换账户",
+    "switchOrAddAccount": "切换或添加账户",
+    "addAnotherAccount": "添加另一个账户",
+    "signOut": "退出登录"
+}

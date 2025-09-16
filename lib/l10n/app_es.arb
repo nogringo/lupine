@@ -1,0 +1,8 @@
+{
+    "helloWorld": "¡Hola, mundo!",
+    "settings": "Configuración",
+    "switchAccount": "Cambiar cuenta",
+    "switchOrAddAccount": "Cambiar o añadir cuenta",
+    "addAnotherAccount": "Añadir otra cuenta",
+    "signOut": "Cerrar sesión"
+}

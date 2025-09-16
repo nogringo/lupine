@@ -10,4 +10,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get helloWorld => 'Hello World!';
+
+  @override
+  String get settings => 'Settings';
+
+  @override
+  String get switchAccount => 'Switch Account';
+
+  @override
+  String get switchOrAddAccount => 'Switch or Add Account';
+
+  @override
+  String get addAnotherAccount => 'Add Another Account';
+
+  @override
+  String get signOut => 'Sign Out';
 }

@@ -1,0 +1,8 @@
+{
+    "helloWorld": "Привет, мир!",
+    "settings": "Настройки",
+    "switchAccount": "Сменить аккаунт",
+    "switchOrAddAccount": "Сменить или добавить аккаунт",
+    "addAnotherAccount": "Добавить другой аккаунт",
+    "signOut": "Выйти"
+}

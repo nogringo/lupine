@@ -1,3 +1,8 @@
 {
-    "helloWorld": "Bonjour monde !"
+    "helloWorld": "Bonjour monde !",
+    "settings": "Paramètres",
+    "switchAccount": "Changer de compte",
+    "switchOrAddAccount": "Changer ou ajouter un compte",
+    "addAnotherAccount": "Ajouter un autre compte",
+    "signOut": "Se déconnecter"
 }

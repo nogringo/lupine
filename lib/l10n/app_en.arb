@@ -2,5 +2,25 @@
   "helloWorld": "Hello World!",
   "@helloWorld": {
     "description": "The conventional newborn programmer greeting"
+  },
+  "settings": "Settings",
+  "@settings": {
+    "description": "Settings button text"
+  },
+  "switchAccount": "Switch Account",
+  "@switchAccount": {
+    "description": "Switch account page title"
+  },
+  "switchOrAddAccount": "Switch or Add Account",
+  "@switchOrAddAccount": {
+    "description": "Switch or add account button text"
+  },
+  "addAnotherAccount": "Add Another Account",
+  "@addAnotherAccount": {
+    "description": "Add another account button text"
+  },
+  "signOut": "Sign Out",
+  "@signOut": {
+    "description": "Sign out button text"
   }
 }

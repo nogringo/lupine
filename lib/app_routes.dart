@@ -3,5 +3,6 @@ class AppRoutes {
   static const home = '/';
   static const login = '/login';
   static const userProfile = '/profile';
+  static const switchAccount = '/switch-account';
   static const share = '/share/:nevent/:encodedPrivateKey';
 }

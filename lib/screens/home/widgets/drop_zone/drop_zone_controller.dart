@@ -11,7 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:toastification/toastification.dart';
 
 class DropZoneController {
-  static onDragDone(DropDoneDetails detail) async {
+  static Future<void> onDragDone(DropDoneDetails detail) async {
     if (kIsWeb) {
       for (var file in detail.files) {
         final isDirectory = file.mimeType == "directory";
@@ -57,11 +57,11 @@ class DropZoneController {
     }
   }
 
-  static onDragEntered(DropEventDetails detail) {
+  static void onDragEntered(DropEventDetails detail) {
     Repository.to.isDraggingFile = true;
   }
 
-  static onDragExited(DropEventDetails detail) {
+  static void onDragExited(DropEventDetails detail) {
     Repository.to.isDraggingFile = false;
   }
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:lupine/app_routes.dart';
 import 'package:lupine/controllers/server_status_controller.dart';
 import 'package:lupine/repository.dart';
+import 'package:lupine/widgets/user_dialog.dart';
 import 'package:nostr_widgets/widgets/widgets.dart';
 
 class UserAvatarWithBadge extends StatelessWidget {
@@ -41,10 +41,11 @@ class UserAvatarWithBadge extends StatelessWidget {
                 )
                 : NPicture(ndk: Repository.to.ndk);
 
-        // Navigate to user profile page when clicked
-        Widget clickableAvatar = InkWell(
-          onTap: () => Get.toNamed(AppRoutes.userProfile),
-          borderRadius: BorderRadius.circular(20),
+        // Show user dialog popup when clicked
+        Widget clickableAvatar = GestureDetector(
+          onTap: () {
+            showUserDialog(context);
+          },
           child: avatarWidget,
         );
 
