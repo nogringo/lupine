@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/repository.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
-import 'package:nip19/nip19.dart';
+import 'package:ndk/shared/nips/nip19/nip19.dart';
 import 'package:nip49/nip49.dart';
 import 'package:toastification/toastification.dart';
 
@@ -31,7 +31,7 @@ class ShareController extends GetxController {
       return;
     }
 
-    privateKey = Nip19.nsecToHex(linkInfo!.encodedPrivateKey);
+    privateKey = Nip19.decode(linkInfo!.encodedPrivateKey);
     loadFile();
 
     update();
