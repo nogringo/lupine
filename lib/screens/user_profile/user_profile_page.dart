@@ -15,23 +15,22 @@ class UserProfilePage extends StatelessWidget {
     final controller = Get.put(UserProfileController());
 
     return Scaffold(
-      appBar:
-          isDesktop
-              ? PreferredSize(
-                preferredSize: Size.fromHeight(kToolbarHeight),
-                child: DragToMoveArea(
-                  child: AppBar(
-                    title: Text('Profile'),
-                    actions: [
-                      Align(
-                        alignment: Alignment.topCenter,
-                        child: WindowButtons(),
-                      ),
-                    ],
-                  ),
+      appBar: isDesktop
+          ? PreferredSize(
+              preferredSize: Size.fromHeight(kToolbarHeight),
+              child: DragToMoveArea(
+                child: AppBar(
+                  title: Text('Profile'),
+                  actions: [
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: WindowButtons(),
+                    ),
+                  ],
                 ),
-              )
-              : AppBar(title: Text('Profile')),
+              ),
+            )
+          : AppBar(title: Text('Profile')),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
         child: Center(
@@ -73,13 +72,12 @@ class UserProfilePage extends StatelessWidget {
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           Obx(
-                            () =>
-                                controller.relaysModified.value
-                                    ? ElevatedButton(
-                                      onPressed: controller.saveRelays,
-                                      child: Text('Save'),
-                                    )
-                                    : Container(),
+                            () => controller.relaysModified.value
+                                ? ElevatedButton(
+                                    onPressed: controller.saveRelays,
+                                    child: Text('Save'),
+                                  )
+                                : Container(),
                           ),
                         ],
                       ),
@@ -103,16 +101,16 @@ class UserProfilePage extends StatelessWidget {
                                       Icon(
                                         Icons.warning_amber_rounded,
                                         size: 48,
-                                        color:
-                                            Theme.of(context).colorScheme.error,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
                                       ),
                                       SizedBox(height: 8),
                                       Text(
                                         'No relays configured',
-                                        style:
-                                            Theme.of(
-                                              context,
-                                            ).textTheme.bodyMedium,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodyMedium,
                                       ),
                                     ],
                                   ),
@@ -121,65 +119,49 @@ class UserProfilePage extends StatelessWidget {
 
                               return ListView(
                                 shrinkWrap: true,
-                                children:
-                                    c.relaysUrl
-                                        .map(
-                                          (relay) => ListTile(
-                                            leading: Icon(Icons.dns),
-                                            title: Text(relay),
-                                            trailing: IconButton(
-                                              icon: Icon(Icons.close),
-                                              onPressed: () {
-                                                showDialog(
-                                                  context: context,
-                                                  builder:
-                                                      (context) => AlertDialog(
-                                                        title: Text(
-                                                          'Remove Relay',
-                                                        ),
-                                                        content: Text(
-                                                          'Are you sure you want to remove this relay?\n\n$relay',
-                                                        ),
-                                                        actions: [
-                                                          TextButton(
-                                                            onPressed:
-                                                                () =>
-                                                                    Navigator.pop(
-                                                                      context,
-                                                                    ),
-                                                            child: Text(
-                                                              'Cancel',
-                                                            ),
-                                                          ),
-                                                          TextButton(
-                                                            onPressed: () {
-                                                              Navigator.pop(
-                                                                context,
-                                                              );
-                                                              c.removeRelay(
-                                                                relay,
-                                                              );
-                                                            },
-                                                            child: Text(
-                                                              'Remove',
-                                                              style: TextStyle(
-                                                                color:
-                                                                    Theme.of(
-                                                                          context,
-                                                                        )
-                                                                        .colorScheme
-                                                                        .error,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ],
+                                children: c.relaysUrl
+                                    .map(
+                                      (relay) => ListTile(
+                                        leading: Icon(Icons.dns),
+                                        title: Text(relay),
+                                        trailing: IconButton(
+                                          icon: Icon(Icons.close),
+                                          onPressed: () {
+                                            showDialog(
+                                              context: context,
+                                              builder: (context) => AlertDialog(
+                                                title: Text('Remove Relay'),
+                                                content: Text(
+                                                  'Are you sure you want to remove this relay?\n\n$relay',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(context),
+                                                    child: Text('Cancel'),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () {
+                                                      Navigator.pop(context);
+                                                      c.removeRelay(relay);
+                                                    },
+                                                    child: Text(
+                                                      'Remove',
+                                                      style: TextStyle(
+                                                        color: Theme.of(
+                                                          context,
+                                                        ).colorScheme.error,
                                                       ),
-                                                );
-                                              },
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
                               );
                             },
                           );
@@ -248,13 +230,12 @@ class UserProfilePage extends StatelessWidget {
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           Obx(
-                            () =>
-                                controller.blossomServersModified.value
-                                    ? ElevatedButton(
-                                      onPressed: controller.saveBlossomServers,
-                                      child: Text('Save'),
-                                    )
-                                    : Container(),
+                            () => controller.blossomServersModified.value
+                                ? ElevatedButton(
+                                    onPressed: controller.saveBlossomServers,
+                                    child: Text('Save'),
+                                  )
+                                : Container(),
                           ),
                         ],
                       ),
@@ -278,27 +259,27 @@ class UserProfilePage extends StatelessWidget {
                                       Icon(
                                         Icons.error,
                                         size: 48,
-                                        color:
-                                            Theme.of(context).colorScheme.error,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
                                       ),
                                       SizedBox(height: 8),
                                       Text(
                                         'No storage servers configured',
-                                        style:
-                                            Theme.of(
-                                              context,
-                                            ).textTheme.bodyMedium,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodyMedium,
                                       ),
                                       Text(
                                         'Files cannot be stored without servers',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodySmall?.copyWith(
-                                          color:
-                                              Theme.of(
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Theme.of(
                                                 context,
                                               ).colorScheme.error,
-                                        ),
+                                            ),
                                       ),
                                     ],
                                   ),
@@ -307,65 +288,53 @@ class UserProfilePage extends StatelessWidget {
 
                               return ListView(
                                 shrinkWrap: true,
-                                children:
-                                    c.blossomServersUrl
-                                        .map(
-                                          (server) => ListTile(
-                                            leading: Icon(Icons.storage),
-                                            title: Text(server),
-                                            trailing: IconButton(
-                                              icon: Icon(Icons.close),
-                                              onPressed: () {
-                                                showDialog(
-                                                  context: context,
-                                                  builder:
-                                                      (context) => AlertDialog(
-                                                        title: Text(
-                                                          'Remove Storage Server',
-                                                        ),
-                                                        content: Text(
-                                                          'Are you sure you want to remove this storage server?\n\n$server',
-                                                        ),
-                                                        actions: [
-                                                          TextButton(
-                                                            onPressed:
-                                                                () =>
-                                                                    Navigator.pop(
-                                                                      context,
-                                                                    ),
-                                                            child: Text(
-                                                              'Cancel',
-                                                            ),
-                                                          ),
-                                                          TextButton(
-                                                            onPressed: () {
-                                                              Navigator.pop(
-                                                                context,
-                                                              );
-                                                              c.removeBlossomServer(
-                                                                server,
-                                                              );
-                                                            },
-                                                            child: Text(
-                                                              'Remove',
-                                                              style: TextStyle(
-                                                                color:
-                                                                    Theme.of(
-                                                                          context,
-                                                                        )
-                                                                        .colorScheme
-                                                                        .error,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ],
+                                children: c.blossomServersUrl
+                                    .map(
+                                      (server) => ListTile(
+                                        leading: Icon(Icons.storage),
+                                        title: Text(server),
+                                        trailing: IconButton(
+                                          icon: Icon(Icons.close),
+                                          onPressed: () {
+                                            showDialog(
+                                              context: context,
+                                              builder: (context) => AlertDialog(
+                                                title: Text(
+                                                  'Remove Storage Server',
+                                                ),
+                                                content: Text(
+                                                  'Are you sure you want to remove this storage server?\n\n$server',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(context),
+                                                    child: Text('Cancel'),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () {
+                                                      Navigator.pop(context);
+                                                      c.removeBlossomServer(
+                                                        server,
+                                                      );
+                                                    },
+                                                    child: Text(
+                                                      'Remove',
+                                                      style: TextStyle(
+                                                        color: Theme.of(
+                                                          context,
+                                                        ).colorScheme.error,
                                                       ),
-                                                );
-                                              },
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
                               );
                             },
                           );
@@ -403,8 +372,8 @@ class UserProfilePage extends StatelessWidget {
                             ),
                           ),
                         ),
-                        onSubmitted:
-                            (_) => controller.addBlossomServerFromField(),
+                        onSubmitted: (_) =>
+                            controller.addBlossomServerFromField(),
                       ),
                     ],
                   ),

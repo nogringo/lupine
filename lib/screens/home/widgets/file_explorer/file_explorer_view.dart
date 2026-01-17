@@ -42,8 +42,9 @@ class FileExplorerView extends StatelessWidget {
 
                 // Sort entities: files first, then folders
                 final files = allEntities.whereType<FileMetadata>().toList();
-                final folders =
-                    allEntities.whereType<FolderMetadata>().toList();
+                final folders = allEntities
+                    .whereType<FolderMetadata>()
+                    .toList();
 
                 // Sort each group by name
                 files.sort((a, b) => a.name.compareTo(b.name));

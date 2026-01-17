@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/app_routes.dart';
 import 'package:lupine/config.dart';
+import 'package:lupine/controllers/upload_queue_controller.dart';
 import 'package:lupine/get_database.dart';
 import 'package:lupine/nostr_utils/no_event_verifier.dart';
 import 'package:lupine_sdk/lupine_sdk.dart';
@@ -110,10 +111,11 @@ class Repository extends GetxController {
 
       if (bytes == null) continue;
 
-      driveService.uploadFile(
+      UploadQueueController.to.enqueue(
+        fileName: file.name,
+        destPath: p.join(fileExplorerViewPath, file.name),
         fileData: bytes,
-        path: p.join(fileExplorerViewPath, file.name),
-        fileType: lookupMimeType(file.path!),
+        mimeType: lookupMimeType(file.path!),
       );
     }
   }
@@ -156,10 +158,11 @@ class Repository extends GetxController {
         final bytes = await entity.readAsBytes();
         final mimeType = lookupMimeType(entity.path);
 
-        await driveService.uploadFile(
+        UploadQueueController.to.enqueue(
+          fileName: entityName,
+          destPath: p.join(newFolderPath, entityName),
           fileData: bytes,
-          path: p.join(newFolderPath, entityName),
-          fileType: mimeType,
+          mimeType: mimeType,
         );
       } else if (entity is Directory) {
         await uploadFolder(folderPath: entity.path, destPath: newFolderPath);

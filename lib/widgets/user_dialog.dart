@@ -23,38 +23,37 @@ void showUserDialog(BuildContext context) {
   showDialog(
     context: context,
     barrierColor: Colors.transparent,
-    builder:
-        (context) => Stack(
-          children: [
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: () => Navigator.of(context).pop(),
-                child: Container(color: Colors.transparent),
-              ),
-            ),
-            Positioned(
-              top: position.top + kToolbarHeight,
-              right: 8,
-              child: Material(
-                elevation: 8,
+    builder: (context) => Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: Container(color: Colors.transparent),
+          ),
+        ),
+        Positioned(
+          top: position.top + kToolbarHeight,
+          right: 8,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(32),
+            child: Container(
+              constraints: BoxConstraints(maxWidth: 320),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
                 borderRadius: BorderRadius.circular(32),
-                child: Container(
-                  constraints: BoxConstraints(maxWidth: 320),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(32),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                      width: 2,
-                    ),
-                  ),
-                  padding: EdgeInsets.all(20),
-                  child: _UserDialogContent(),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  width: 2,
                 ),
               ),
+              padding: EdgeInsets.all(20),
+              child: _UserDialogContent(),
             ),
-          ],
+          ),
         ),
+      ],
+    ),
   );
 }
 

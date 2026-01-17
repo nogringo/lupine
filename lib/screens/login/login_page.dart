@@ -45,18 +45,17 @@ class LoginPage extends StatelessWidget {
               ),
               SizedBox(height: 32),
               Obx(
-                () =>
-                    controller.isLoading.value
-                        ? Center(child: CircularProgressIndicator())
-                        : NLogin(
-                          ndk: Repository.to.ndk,
-                          enablePubkeyLogin: false,
-                          nostrConnect: NostrConnect(
-                            relays: ["wss://relay.nsec.app"],
-                            appName: appTitle,
-                          ),
-                          onLoggedIn: controller.onLoggedIn,
+                () => controller.isLoading.value
+                    ? Center(child: CircularProgressIndicator())
+                    : NLogin(
+                        ndk: Repository.to.ndk,
+                        enablePubkeyLogin: false,
+                        nostrConnect: NostrConnect(
+                          relays: ["wss://relay.nsec.app"],
+                          appName: appTitle,
                         ),
+                        onLoggedIn: controller.onLoggedIn,
+                      ),
               ),
             ],
           ),

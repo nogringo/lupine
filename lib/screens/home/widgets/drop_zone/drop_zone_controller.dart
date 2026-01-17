@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lupine/config.dart';
+import 'package:lupine/controllers/upload_queue_controller.dart';
 import 'package:lupine/repository.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
@@ -31,10 +32,11 @@ class DropZoneController {
           continue; // TODO Allow folder drop on web
         }
 
-        Repository.to.driveService.uploadFile(
+        UploadQueueController.to.enqueue(
+          fileName: file.name,
+          destPath: p.join(Repository.to.fileExplorerViewPath, file.name),
           fileData: await file.readAsBytes(),
-          path: p.join(Repository.to.fileExplorerViewPath, file.name),
-          fileType: file.mimeType,
+          mimeType: file.mimeType,
         );
       }
       return;
@@ -45,13 +47,14 @@ class DropZoneController {
       if (entityType == FileSystemEntityType.directory) {
         Repository.to.uploadFolder(folderPath: file.path);
       } else if (entityType == FileSystemEntityType.file) {
-        Repository.to.driveService.uploadFile(
-          fileData: await file.readAsBytes(),
-          path: p.join(
+        UploadQueueController.to.enqueue(
+          fileName: p.basename(file.path),
+          destPath: p.join(
             Repository.to.fileExplorerViewPath,
             p.basename(file.path),
           ),
-          fileType: lookupMimeType(file.path),
+          fileData: await file.readAsBytes(),
+          mimeType: lookupMimeType(file.path),
         );
       }
     }

@@ -160,8 +160,10 @@ class UserProfileController extends GetxController {
   }
 
   void _checkBlossomServersModified() {
-    blossomServersModified.value =
-        !_listEquals(blossomServersUrl, originalBlossomServersUrl);
+    blossomServersModified.value = !_listEquals(
+      blossomServersUrl,
+      originalBlossomServersUrl,
+    );
   }
 
   bool _listEquals(List<String> a, List<String> b) {

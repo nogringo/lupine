@@ -85,79 +85,77 @@ class FileExplorerListView extends StatelessWidget {
                       ),
                     ),
                   ),
-                  child:
-                      isFolder
-                          ? DragTarget<DriveItem>(
-                            onWillAcceptWithDetails: (details) {
-                              final draggedItem = details.data;
-                              if (draggedItem.path == entity.path) return false;
-                              if (entity.path.startsWith(
-                                '${draggedItem.path}/',
-                              )) {
-                                return false;
-                              }
-                              return true;
-                            },
-                            onAcceptWithDetails: (details) {
-                              final draggedItem = details.data;
-                              final newPath = p.join(
-                                entity.path,
-                                draggedItem.name,
-                              );
-                              Repository.to.driveService.move(
-                                oldPath: draggedItem.path,
-                                newPath: newPath,
-                              );
-                            },
-                            builder: (context, candidateData, rejectedData) {
-                              final isHovering = candidateData.isNotEmpty;
-                              return Container(
-                                padding: isHovering ? EdgeInsets.all(2) : null,
-                                decoration: BoxDecoration(
-                                  color:
-                                      isHovering
-                                          ? Theme.of(context)
-                                              .colorScheme
-                                              .primaryContainer
-                                              .withValues(alpha: 0.2)
-                                          : null,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: EntityThumbnailView(entity),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        entity.name,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          )
-                          : Row(
-                            children: [
-                              SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: EntityThumbnailView(entity),
+                  child: isFolder
+                      ? DragTarget<DriveItem>(
+                          onWillAcceptWithDetails: (details) {
+                            final draggedItem = details.data;
+                            if (draggedItem.path == entity.path) return false;
+                            if (entity.path.startsWith(
+                              '${draggedItem.path}/',
+                            )) {
+                              return false;
+                            }
+                            return true;
+                          },
+                          onAcceptWithDetails: (details) {
+                            final draggedItem = details.data;
+                            final newPath = p.join(
+                              entity.path,
+                              draggedItem.name,
+                            );
+                            Repository.to.driveService.move(
+                              oldPath: draggedItem.path,
+                              newPath: newPath,
+                            );
+                          },
+                          builder: (context, candidateData, rejectedData) {
+                            final isHovering = candidateData.isNotEmpty;
+                            return Container(
+                              padding: isHovering ? EdgeInsets.all(2) : null,
+                              decoration: BoxDecoration(
+                                color: isHovering
+                                    ? Theme.of(context)
+                                          .colorScheme
+                                          .primaryContainer
+                                          .withValues(alpha: 0.2)
+                                    : null,
+                                borderRadius: BorderRadius.circular(4),
                               ),
-                              SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  entity.name,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: EntityThumbnailView(entity),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      entity.name,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            );
+                          },
+                        )
+                      : Row(
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: EntityThumbnailView(entity),
+                            ),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                entity.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
                 onTap: () {
                   if (entity is FolderMetadata) {
@@ -188,8 +186,8 @@ class FileExplorerListView extends StatelessWidget {
                       isInTrashcan,
                     );
                   },
-                  onSelected:
-                      (value) => controller.onEntityMenuSelected(value, entity),
+                  onSelected: (value) =>
+                      controller.onEntityMenuSelected(value, entity),
                 ),
               ),
             ],

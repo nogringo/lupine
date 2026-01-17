@@ -42,23 +42,20 @@ class FolderSelectionDialogView extends StatelessWidget {
                         children: [
                           Text(
                             'Move "${entity.name}"',
-                            style: Theme.of(
-                              context,
-                            ).textTheme.titleLarge?.copyWith(
-                              color:
-                                  Theme.of(
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(
+                                  color: Theme.of(
                                     context,
                                   ).colorScheme.onPrimaryContainer,
-                              fontWeight: FontWeight.w600,
-                            ),
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
                           IconButton(
                             icon: Icon(Icons.close),
                             onPressed: () => Get.back(),
-                            color:
-                                Theme.of(
-                                  context,
-                                ).colorScheme.onPrimaryContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onPrimaryContainer,
                           ),
                         ],
                       ),
@@ -80,8 +77,9 @@ class FolderSelectionDialogView extends StatelessWidget {
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   decoration: BoxDecoration(
-                    color:
-                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     border: Border(
                       bottom: BorderSide(
                         color: Theme.of(context).dividerColor,
@@ -93,12 +91,11 @@ class FolderSelectionDialogView extends StatelessWidget {
                     children: [
                       IconButton(
                         icon: Icon(Icons.arrow_upward),
-                        onPressed:
-                            c.folderPath == '/'
-                                ? null
-                                : () {
-                                  c.goToParentDirectory();
-                                },
+                        onPressed: c.folderPath == '/'
+                            ? null
+                            : () {
+                                c.goToParentDirectory();
+                              },
                         tooltip: 'Go to parent folder',
                       ),
                       SizedBox(width: 8),
@@ -139,20 +136,22 @@ class FolderSelectionDialogView extends StatelessWidget {
                               SizedBox(height: 16),
                               Text(
                                 'No folders here',
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.bodyLarge?.copyWith(
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.outline,
+                                    ),
                               ),
                               SizedBox(height: 8),
                               Text(
                                 'You can move the item to the current location\nor go back to parent folder',
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.outline,
+                                    ),
                                 textAlign: TextAlign.center,
                               ),
                             ],
@@ -175,10 +174,9 @@ class FolderSelectionDialogView extends StatelessWidget {
                             title: Text(
                               folder.name,
                               style: TextStyle(
-                                fontWeight:
-                                    isSelected
-                                        ? FontWeight.w600
-                                        : FontWeight.normal,
+                                fontWeight: isSelected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
                               ),
                             ),
                             subtitle: Text(

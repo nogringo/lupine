@@ -5,6 +5,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:lupine/app_routes.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/constants.dart';
+import 'package:lupine/controllers/upload_queue_controller.dart';
 import 'package:lupine/l10n/app_localizations.dart';
 import 'package:lupine/middlewares/router_login_middleware.dart';
 import 'package:lupine/screens/home/home_page.dart';
@@ -37,6 +38,8 @@ void main() async {
   Get.put(repository);
   await repository.init();
 
+  Get.put(UploadQueueController());
+
   await nRestoreAccounts(repository.ndk);
 
   if (repository.ndk.accounts.isLoggedIn) {
@@ -54,8 +57,9 @@ class MainApp extends StatelessWidget {
     return SystemThemeBuilder(
       builder: (context, accent) {
         final supportAccentColor = defaultTargetPlatform.supportsAccentColor;
-        Color accentColor =
-            supportAccentColor ? accent.accent : accent.defaultAccentColor;
+        Color accentColor = supportAccentColor
+            ? accent.accent
+            : accent.defaultAccentColor;
         if (kIsWeb) accentColor = Colors.teal;
 
         ThemeData getTheme([Brightness? brightness]) {
@@ -70,13 +74,13 @@ class MainApp extends StatelessWidget {
           return ThemeData(
             appBarTheme: AppBarTheme(
               systemOverlayStyle: SystemUiOverlayStyle(
-                statusBarBrightness:
-                    isLightTheme
-                        ? Brightness.dark
-                        : Brightness.light, //! It does not switch on emulator
+                statusBarBrightness: isLightTheme
+                    ? Brightness.dark
+                    : Brightness.light, //! It does not switch on emulator
                 systemNavigationBarColor: colorScheme.surfaceContainer,
-                systemNavigationBarIconBrightness:
-                    isLightTheme ? Brightness.dark : Brightness.light,
+                systemNavigationBarIconBrightness: isLightTheme
+                    ? Brightness.dark
+                    : Brightness.light,
               ),
             ),
             colorScheme: colorScheme,

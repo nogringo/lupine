@@ -21,25 +21,22 @@ class UserAvatarWithBadge extends StatelessWidget {
         final hasNoBlossomServers = controller.hasNoBlossomServers;
 
         // Use error color if no blossom servers, otherwise use amber for warning
-        final badgeColor =
-            hasNoBlossomServers
-                ? Theme.of(context).colorScheme.error
-                : Theme.of(context).colorScheme.primary;
+        final badgeColor = hasNoBlossomServers
+            ? Theme.of(context).colorScheme.error
+            : Theme.of(context).colorScheme.primary;
 
         // Different message based on severity
-        final tooltipMessage =
-            hasNoBlossomServers
-                ? 'Critical: No storage servers configured!'
-                : 'Configuration needed: Add more relays or storage servers';
+        final tooltipMessage = hasNoBlossomServers
+            ? 'Critical: No storage servers configured!'
+            : 'Configuration needed: Add more relays or storage servers';
 
-        Widget avatarWidget =
-            showBadge
-                ? Badge(
-                  smallSize: 12,
-                  backgroundColor: badgeColor,
-                  child: NPicture(ndk: Repository.to.ndk),
-                )
-                : NPicture(ndk: Repository.to.ndk);
+        Widget avatarWidget = showBadge
+            ? Badge(
+                smallSize: 12,
+                backgroundColor: badgeColor,
+                child: NPicture(ndk: Repository.to.ndk),
+              )
+            : NPicture(ndk: Repository.to.ndk);
 
         // Show user dialog popup when clicked
         Widget clickableAvatar = GestureDetector(

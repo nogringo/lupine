@@ -75,10 +75,9 @@ class SidebarView extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Align(
-                  alignment:
-                      sidebarController.extended
-                          ? Alignment.centerRight
-                          : Alignment.center,
+                  alignment: sidebarController.extended
+                      ? Alignment.centerRight
+                      : Alignment.center,
                   child: IconButton(
                     onPressed: sidebarController.toogleExtend,
                     icon: AnimatedRotation(

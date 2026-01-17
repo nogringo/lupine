@@ -117,10 +117,9 @@ class DownloadView extends StatelessWidget {
             SizedBox(height: 16),
             Obx(
               () => FilledButton(
-                onPressed:
-                    ShareController.to.isDownloading.value
-                        ? null
-                        : ShareController.to.downloadFile,
+                onPressed: ShareController.to.isDownloading.value
+                    ? null
+                    : ShareController.to.downloadFile,
                 child: Text("Download"),
               ),
             ),

@@ -11,10 +11,9 @@ String formatBytes(int bytes, {int decimals = 1}) {
   final formattedValue = value.toStringAsFixed(decimals);
 
   // Enlève les .00 si c'est un nombre entier
-  final cleanValue =
-      formattedValue.endsWith('.00')
-          ? formattedValue.substring(0, formattedValue.length - 3)
-          : formattedValue.replaceAll(RegExp(r'\.?0*$'), '');
+  final cleanValue = formattedValue.endsWith('.00')
+      ? formattedValue.substring(0, formattedValue.length - 3)
+      : formattedValue.replaceAll(RegExp(r'\.?0*$'), '');
 
   return '$cleanValue ${suffixes[i]}';
 }
