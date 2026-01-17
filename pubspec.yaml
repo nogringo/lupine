@@ -20,7 +20,7 @@ dependencies:
   intl: any
   mime: ^2.0.0
   path: ^1.9.1
-  lupine_sdk: ^2.0.1
+  lupine_sdk: ^2.0.2
   path_provider: ^2.1.5
   flutter_secure_storage: ^10.0.0
   pointycastle: ^4.0.0
