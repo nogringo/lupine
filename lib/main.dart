@@ -25,7 +25,10 @@ import 'package:nostr_widgets/l10n/app_localizations.dart' as nostr_widgets;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init(appTitle);
-  await SystemTheme.accentColor.load();
+  
+  if (!kIsWeb) {
+    await SystemTheme.accentColor.load();
+  }
 
   if (isDesktop) {
     await windowManager.ensureInitialized();

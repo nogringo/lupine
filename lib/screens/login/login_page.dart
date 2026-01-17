@@ -51,7 +51,11 @@ class LoginPage extends StatelessWidget {
                         ndk: Repository.to.ndk,
                         enablePubkeyLogin: false,
                         nostrConnect: NostrConnect(
-                          relays: ["wss://relay.nsec.app"],
+                          relays: [
+                            "wss://nostr-01.uid.ovh",
+                            "wss://nostr-02.uid.ovh",
+                            "wss://relay.nsec.app",
+                          ],
                           appName: appTitle,
                         ),
                         onLoggedIn: controller.onLoggedIn,

@@ -4,7 +4,7 @@ publish_to: 'none'
 version: 1.0.0
 
 environment:
-  sdk: ^3.9.2
+  sdk: ^3.10.4
 
 dependencies:
   crypto: ^3.0.7
