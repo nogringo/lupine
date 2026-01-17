@@ -7,13 +7,15 @@ import 'package:sembast/sembast_io.dart';
 import 'package:path/path.dart' as p;
 
 Future<Database> getDatabase([String dbName = "ndk_cache_manager"]) async {
+  final name = kDebugMode ? '${dbName}_dev' : dbName;
+
   if (kIsWeb) {
     var factory = databaseFactoryWeb;
-    return await factory.openDatabase(dbName);
+    return await factory.openDatabase(name);
   }
 
-  final Directory appDocumentsDir = await getApplicationDocumentsDirectory();
+  final Directory appSupportDir = await getApplicationSupportDirectory();
   return await databaseFactoryIo.openDatabase(
-    p.join(appDocumentsDir.path, '$dbName.db'),
+    p.join(appSupportDir.path, '$name.db'),
   );
 }
