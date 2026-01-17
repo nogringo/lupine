@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:lupine/app_routes.dart';
+import 'package:lupine/local_storage_service.dart';
 import 'package:lupine/config.dart';
 import 'package:lupine/constants.dart';
 import 'package:lupine/controllers/upload_queue_controller.dart';
@@ -24,11 +24,9 @@ import 'package:nostr_widgets/l10n/app_localizations.dart' as nostr_widgets;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await GetStorage.init(appTitle);
-  
-  if (!kIsWeb) {
-    await SystemTheme.accentColor.load();
-  }
+  await Get.putAsync(() => LocalStorageService().init());
+
+  await SystemTheme.accentColor.load();
 
   if (isDesktop) {
     await windowManager.ensureInitialized();

@@ -2,26 +2,24 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
-import 'package:lupine/config.dart';
+import 'package:lupine/local_storage_service.dart';
 import 'package:lupine/models/upload_item.dart';
 import 'package:lupine/repository.dart';
 
 class UploadQueueController extends GetxController {
   static UploadQueueController get to => Get.find();
 
-  final _storage = GetStorage(appTitle);
   final List<UploadItem> _queue = [];
   bool _isProcessing = false;
-
-  late bool _isExpanded = _storage.read('uploadPanelExpanded') ?? true;
+  late bool _isExpanded =
+      LocalStorageService.to.read('uploadPanelExpanded') ?? true;
 
   List<UploadItem> get queue => _queue;
 
   bool get isExpanded => _isExpanded;
   set isExpanded(bool value) {
     _isExpanded = value;
-    _storage.write('uploadPanelExpanded', value);
+    LocalStorageService.to.write('uploadPanelExpanded', value);
     update();
   }
 
