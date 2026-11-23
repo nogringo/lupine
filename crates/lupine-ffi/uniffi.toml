@@ -1,0 +1,4 @@
+[bindings.swift]
+module_name = "LupineCore"
+ffi_module_name = "LupineFFI"
+ffi_module_filename = "LupineFFI"
