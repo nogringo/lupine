@@ -1,7 +1,8 @@
 //! An open drive on this device: its keys, what the device knows of the
 //! drive, and its relays. Syncs, writes versions, settles conflicts and the
 //! tree's repairs, and compacts. Every step lands in the local database,
-//! with the items it shows.
+//! with the items it shows. Takes in the versions the File Provider
+//! extension writes there, and sends them.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::future::Future;
@@ -15,6 +16,7 @@ use nostr::event::{Event, EventId, Kind};
 use nostr::filter::Filter;
 use nostr::key::PublicKey;
 use nostr::types::RelayUrl;
+use tokio::sync::Notify;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::content::{ContentDescriptor, FileKey};
@@ -25,7 +27,7 @@ use crate::items::{self, Item};
 use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::relays::{Comparison, Relays, Sent};
 use crate::replica::{Holdings, Replica, Retention};
-use crate::store::Store;
+use crate::store::{Outgoing, Store};
 use crate::tree::Tree;
 
 #[cfg(test)]
@@ -48,6 +50,8 @@ pub struct SyncReport {
     pub received: usize,
     /// Events sent to relays that lacked them.
     pub repaired: usize,
+    /// Wraps the extension wrote that relays took, out of the outbox.
+    pub sent: usize,
     /// Relays that could not be synced. Their repairs wait for a sync that
     /// reaches them.
     pub failed: Vec<(RelayUrl, Error)>,
@@ -84,6 +88,8 @@ pub struct DriveSession {
     synced: bool,
     items: HashMap<NodeId, Item>,
     items_changed: bool,
+    /// The last outbox entry taken into the replica.
+    outbox_seen: i64,
 }
 
 enum Ended {
@@ -117,6 +123,7 @@ impl DriveSession {
             synced,
             items,
             items_changed: false,
+            outbox_seen: 0,
         };
         // The items follow the rules of this version of the core.
         session.persist(true)?;
@@ -185,10 +192,12 @@ impl DriveSession {
             .author(self.public_key())
     }
 
-    /// Reconciles with every drive relay: downloads what this device lacks,
-    /// deletions first, then sends each relay the wraps it lacks and the
-    /// deletions of wraps it still holds.
+    /// Reconciles with every drive relay: takes in and sends what the
+    /// extension wrote, downloads what this device lacks, deletions first,
+    /// then sends each relay the wraps it lacks and the deletions of wraps
+    /// it still holds.
     pub async fn sync(&mut self) -> Result<SyncReport> {
+        let sent = self.take_in().await?;
         let (wraps, deletions) = (self.wraps(), self.deletions());
         let wrap_items = self.replica.wrap_items();
         let deletion_items = self.replica.deletion_items();
@@ -201,7 +210,10 @@ impl DriveSession {
         }))
         .await;
 
-        let mut report = SyncReport::default();
+        let mut report = SyncReport {
+            sent,
+            ..SyncReport::default()
+        };
         let mut synced = Vec::new();
         for (url, comparison) in urls.into_iter().zip(comparisons) {
             match comparison {
@@ -278,10 +290,14 @@ impl DriveSession {
             .extend(self.replica.insert(&self.keys, event));
     }
 
+    /// The outbox keeps its own order: its wraps are not repaired.
     async fn send_repairs(&self, holdings: &Holdings) -> Result<usize> {
+        let unsent = self.store.outbox_wraps()?;
         let mut by_event: HashMap<EventId, Vec<RelayUrl>> = HashMap::new();
         for (relay, id) in self.replica.repairs(holdings) {
-            by_event.entry(id).or_default().push(relay);
+            if !unsent.contains(&id) {
+                by_event.entry(id).or_default().push(relay);
+            }
         }
         let ids: Vec<EventId> = by_event.keys().copied().collect();
         let events = self.store.events(&ids)?;
@@ -315,12 +331,88 @@ impl DriveSession {
         Ok(changed)
     }
 
+    /// Takes in the versions the extension wrote to the local database,
+    /// then sends its outbox to the relays. Returns the wraps relays took.
+    pub async fn take_in(&mut self) -> Result<usize> {
+        let outbox = self.absorb()?;
+        self.send_outbox(outbox).await
+    }
+
+    /// Adds the extension's new versions to the replica. The extension
+    /// wrote the items they show, so only what the tree rules change
+    /// besides is written again.
+    fn absorb(&mut self) -> Result<Vec<Outgoing>> {
+        let outbox = self.store.outbox(0)?;
+        let mut changed = BTreeSet::new();
+        for outgoing in outbox.iter().filter(|o| o.seq > self.outbox_seen) {
+            if let Some(event) = &outgoing.event {
+                changed.extend(self.replica.insert(&self.keys, event));
+            }
+        }
+        if let Some(last) = outbox.last() {
+            self.outbox_seen = self.outbox_seen.max(last.seq);
+        }
+        for node in &changed {
+            match self.store.item(node)? {
+                Some(item) => self.items.insert(*node, item),
+                None => self.items.remove(node),
+            };
+        }
+        self.persist(false)?;
+        Ok(outbox)
+    }
+
+    /// In the order written, a wave at a time: a wave ends before each
+    /// barrier, so a folder's tombstone leaves only once those of what it
+    /// held reached a relay. Stops at the first batch with a wrap no relay
+    /// took, which waits for the next try.
+    async fn send_outbox(&mut self, outbox: Vec<Outgoing>) -> Result<usize> {
+        let mut waves: Vec<Vec<(i64, Option<Event>)>> = Vec::new();
+        for outgoing in outbox {
+            let entry = (outgoing.seq, outgoing.event);
+            match waves.last_mut() {
+                Some(wave) if !outgoing.barrier => wave.push(entry),
+                _ => waves.push(vec![entry]),
+            }
+        }
+        let mut sent = 0;
+        for wave in waves {
+            for batch in wave.chunks(SEND_CONCURRENCY) {
+                let relays = &self.relays;
+                let taken = join_all(batch.iter().cloned().map(|(seq, event)| async move {
+                    match event {
+                        Some(event) => (seq, !relays.send_all(&event).await.accepted.is_empty()),
+                        // Deleted since: nothing left to send.
+                        None => (seq, true),
+                    }
+                }))
+                .await;
+                let done: Vec<i64> = taken
+                    .iter()
+                    .filter(|(_, taken)| *taken)
+                    .map(|(seq, _)| *seq)
+                    .collect();
+                self.store.sent(&done)?;
+                sent += batch
+                    .iter()
+                    .filter(|(seq, event)| event.is_some() && done.contains(seq))
+                    .count();
+                if done.len() < batch.len() {
+                    return Ok(sent);
+                }
+            }
+        }
+        Ok(sent)
+    }
+
     /// Keeps the local database up to date until `stop` completes: follows
     /// the relays live, and syncs fully at the start and every [`RESYNC`].
+    /// Takes in what the extension wrote whenever `written` is notified.
     /// Fails only when the local database does.
     pub async fn follow(
         &mut self,
         stop: impl Future<Output = ()>,
+        written: &Notify,
         mut report: impl FnMut(Followed<'_>),
     ) -> Result<()> {
         let mut stop = pin!(stop);
@@ -337,13 +429,22 @@ impl DriveSession {
             let ended = match live.as_mut() {
                 Some(events) => {
                     let resync = pin!(tokio::time::sleep(RESYNC));
-                    self.receive_live(events, &mut stop, resync, &mut report)
+                    self.receive_live(events, &mut stop, written, resync, &mut report)
                         .await?
                 }
-                None => tokio::select! {
-                    () = &mut stop => Ended::Stopped,
-                    () = tokio::time::sleep(RETRY) => Ended::Closed,
-                },
+                None => {
+                    let mut retry = pin!(tokio::time::sleep(RETRY));
+                    loop {
+                        tokio::select! {
+                            () = &mut stop => break Ended::Stopped,
+                            () = &mut retry => break Ended::Closed,
+                            () = written.notified() => {
+                                self.take_in().await?;
+                                self.report_items(&mut report);
+                            }
+                        }
+                    }
+                }
             };
             match ended {
                 Ended::Stopped => return Ok(()),
@@ -357,6 +458,7 @@ impl DriveSession {
         &mut self,
         live: &mut (impl Stream<Item = Event> + Unpin),
         stop: &mut (impl Future<Output = ()> + Unpin),
+        written: &Notify,
         mut resync: impl Future<Output = ()> + Unpin,
         report: &mut impl FnMut(Followed<'_>),
     ) -> Result<Ended> {
@@ -364,6 +466,11 @@ impl DriveSession {
             let first = tokio::select! {
                 () = &mut *stop => return Ok(Ended::Stopped),
                 () = &mut resync => return Ok(Ended::Resync),
+                () = written.notified() => {
+                    self.take_in().await?;
+                    self.report_items(report);
+                    continue;
+                }
                 event = live.next() => event,
             };
             let Some(first) = first else {
@@ -392,8 +499,8 @@ impl DriveSession {
     }
 
     /// Wraps `version` and sends it to every drive relay. Run
-    /// `BlossomStore::replicate` on each blob it references first: another
-    /// device may have collected a blob this version reuses.
+    /// `BlobStore::replicate` first on each blob it reuses from an earlier
+    /// version: another device may have collected it.
     pub async fn publish(&mut self, version: NodeVersion) -> Result<Published> {
         let (id, event) = self.keys.wrap(&version)?;
         self.replica.insert(&self.keys, &event);
@@ -479,10 +586,7 @@ impl DriveSession {
         node: &NodeId,
         change: impl FnOnce(&mut NodeVersion) -> Result<()>,
     ) -> Result<NodeVersion> {
-        let heads = self
-            .replica
-            .heads(node)
-            .ok_or(Error::Malformed("unknown node"))?;
+        let heads = self.replica.heads(node).ok_or(Error::UnknownNode)?;
         let mut next = heads.winner().1.clone();
         if next.is_tombstone() {
             // Only a folder that something inside revives shows when deleted.
@@ -498,7 +602,7 @@ impl DriveSession {
     pub async fn delete(&mut self, node: NodeId) -> Result<usize> {
         let tree = self.tree();
         if tree.get(&node).is_none() {
-            return Err(Error::Malformed("unknown node"));
+            return Err(Error::UnknownNode);
         }
         let mut order = Vec::new();
         let mut stack = vec![(node, false)];
@@ -511,10 +615,7 @@ impl DriveSession {
             stack.extend(tree.children(Some(current)).map(|e| (e.node, false)));
         }
         for current in &order {
-            let heads = self
-                .replica
-                .heads(current)
-                .ok_or(Error::Malformed("unknown node"))?;
+            let heads = self.replica.heads(current).ok_or(Error::UnknownNode)?;
             let (winner_id, winner) = heads.winner();
             let mut replaced = vec![winner];
             replaced.extend(
@@ -536,10 +637,7 @@ impl DriveSession {
         let Some(parent) = parent else {
             return Ok(());
         };
-        let heads = self
-            .replica
-            .heads(&parent)
-            .ok_or(Error::Malformed("unknown parent"))?;
+        let heads = self.replica.heads(&parent).ok_or(Error::UnknownParent)?;
         match heads.winner().1.node_type {
             NodeType::File => Err(Error::Malformed("the parent is a file")),
             NodeType::Folder | NodeType::Deleted => Ok(()),

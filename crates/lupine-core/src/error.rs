@@ -8,6 +8,15 @@ pub enum Error {
     UnsupportedVersion(u8),
     #[error("malformed data: {0}")]
     Malformed(&'static str),
+    #[error("invalid name: 1 to 255 UTF-8 bytes, not . or .., no / or NUL")]
+    InvalidName,
+    #[error("no such node")]
+    UnknownNode,
+    /// The parent may only be late.
+    #[error("no such parent folder")]
+    UnknownParent,
+    #[error("the folder is not empty")]
+    FolderNotEmpty,
     #[error("blob {0} does not match its hash")]
     BlobHashMismatch(Sha256Hash),
     #[error("blob {0} not found")]

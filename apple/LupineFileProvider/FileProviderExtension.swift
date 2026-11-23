@@ -1,9 +1,11 @@
 import FileProvider
 import LupineCore
 import os
+import UniformTypeIdentifiers
 
-/// Read-only for now: enumerates the drive from the local database the app
-/// keeps up to date, and fetches content, whole or in part, from Blossom.
+/// Enumerates the drive from the local database the app keeps up to date,
+/// and fetches content, whole or in part, from Blossom. Finder's changes are
+/// uploaded here and written to the local database; the app sends them.
 final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderPartialContentFetching {
     private let domain: NSFileProviderDomain
     private let drives: DriveAccess
@@ -124,8 +126,34 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, Self.unsupported)
-        return Progress()
+        let type = itemTemplate.contentType ?? .data
+        if Self.staysLocal(itemTemplate.filename, type) {
+            completionHandler(nil, [], false, NSFileProviderError(.excludedFromSync))
+            return Progress()
+        }
+        let item = NewItem(
+            request: itemTemplate.itemIdentifier.rawValue,
+            parent: Self.parent(itemTemplate.parentItemIdentifier),
+            name: itemTemplate.filename,
+            isFolder: type.conforms(to: .directory),
+            mayAlreadyExist: options.contains(.mayAlreadyExist),
+            contents: nil,
+            created: Self.millis(itemTemplate.creationDate ?? nil),
+            modified: Self.millis(itemTemplate.contentModificationDate ?? nil)
+        )
+        return write(url, completion: completionHandler) { writer, staged, observer, cancellation in
+            var item = item
+            item.contents = staged?.path(percentEncoded: false)
+            return try await writer.createItem(item: item, observer: observer, cancellation: cancellation)
+        } failure: { error in
+            switch error as? CoreError {
+            // The system creates the parent, then tries again.
+            case .NoSuchParent?: NSFileProviderError(.noSuchItem)
+            // Kept on this Mac only, until renamed.
+            case .InvalidName?: NSFileProviderError(.excludedFromSync)
+            default: ProviderError.map(error)
+            }
+        }
     }
 
     func modifyItem(
@@ -137,8 +165,27 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, Self.unsupported)
-        return Progress()
+        if item.itemIdentifier == .rootContainer {
+            completionHandler(FileProviderItem.root(), [], false, nil)
+            return Progress()
+        }
+        let moved = !changedFields.isDisjoint(with: [.filename, .parentItemIdentifier])
+        let edit = ItemEdit(
+            id: item.itemIdentifier.rawValue,
+            isFolder: (item.contentType ?? .data).conforms(to: .directory),
+            baseContentVersion: version.contentVersion,
+            location: moved ? ItemLocation(parent: Self.parent(item.parentItemIdentifier), name: item.filename) : nil,
+            contents: nil,
+            created: changedFields.contains(.creationDate) ? Self.millis(item.creationDate ?? nil) : nil,
+            modified: changedFields.contains(.contentModificationDate) ? Self.millis(item.contentModificationDate ?? nil) : nil
+        )
+        // Tags, extended attributes and the like are not kept yet.
+        let contents = changedFields.contains(.contents) ? newContents : nil
+        return write(contents, completion: completionHandler) { writer, staged, observer, cancellation in
+            var edit = edit
+            edit.contents = staged?.path(percentEncoded: false)
+            return try await writer.modifyItem(edit: edit, observer: observer, cancellation: cancellation)
+        } failure: { ProviderError.map($0) }
     }
 
     func deleteItem(
@@ -148,8 +195,96 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         request: NSFileProviderRequest,
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
-        completionHandler(Self.unsupported)
+        // Only the local database: quick enough to run here.
+        do {
+            try drives.itemWriter().deleteItem(
+                id: identifier.rawValue,
+                baseContentVersion: version.contentVersion,
+                recursive: options.contains(.recursive)
+            )
+            OutboxSignal.post()
+            // Removals, and a file kept because it changed since.
+            NSFileProviderManager(for: domain)?.signalEnumerator(for: .workingSet) { _ in }
+            completionHandler(nil)
+        } catch {
+            logger.error("Delete failed: \(error.localizedDescription, privacy: .public)")
+            completionHandler(ProviderError.map(error))
+        }
         return Progress()
+    }
+
+    /// Uploads `contents` from a clone, so that edits made meanwhile cannot
+    /// mix into the version, and calls `completion` once.
+    private func write(
+        _ contents: URL?,
+        completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void,
+        change: @escaping @Sendable (ItemWriter, URL?, TransferObserver, Cancellation) async throws -> DriveItem?,
+        failure: @escaping @Sendable (Error) -> Error
+    ) -> Progress {
+        let progress = Progress(totalUnitCount: 0)
+        let done = Completion(completion)
+        let writer: ItemWriter
+        let staged: URL?
+        do {
+            writer = try drives.itemWriter()
+            if let contents {
+                let size = try contents.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                progress.totalUnitCount = Int64(size)
+            }
+            staged = contents.map(stage)
+        } catch {
+            completion(nil, [], false, failure(error))
+            return progress
+        }
+        let cancellation = Cancellation()
+        progress.cancellationHandler = { cancellation.cancel() }
+        let observer = ProgressObserver(progress)
+        let logger = logger
+        Task {
+            defer {
+                if let staged, staged != contents {
+                    try? FileManager.default.removeItem(at: staged)
+                }
+            }
+            do {
+                let item = try await change(writer, staged, observer, cancellation)
+                OutboxSignal.post()
+                done.call(item.map(FileProviderItem.init), [], false, nil)
+            } catch {
+                logger.error("Write failed: \(error.localizedDescription, privacy: .public)")
+                done.call(nil, [], false, failure(error))
+            }
+        }
+        return progress
+    }
+
+    /// A clone in the domain's temporary directory, or the original where
+    /// the volume cannot clone.
+    private func stage(_ contents: URL) -> URL {
+        guard let directory = try? NSFileProviderManager(for: domain)?.temporaryDirectoryURL() else {
+            return contents
+        }
+        let clone = directory.appending(path: UUID().uuidString)
+        let cloned = contents.withUnsafeFileSystemRepresentation { source in
+            clone.withUnsafeFileSystemRepresentation { target in
+                guard let source, let target else { return false }
+                return clonefile(source, target, 0) == 0
+            }
+        }
+        return cloned ? clone : contents
+    }
+
+    /// Finder's own files, and links the drive cannot hold.
+    private static func staysLocal(_ name: String, _ type: UTType) -> Bool {
+        name == ".DS_Store" || type.conforms(to: .symbolicLink) || type.conforms(to: .aliasFile)
+    }
+
+    private static func parent(_ identifier: NSFileProviderItemIdentifier) -> String? {
+        identifier == .rootContainer ? nil : identifier.rawValue
+    }
+
+    private static func millis(_ date: Date?) -> Int64? {
+        date.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
     }
 
     func enumerator(
@@ -162,7 +297,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         case .workingSet:
             return FileProviderEnumerator(scope: .workingSet, drives: drives)
         case .trashContainer:
-            throw NSFileProviderError(.noSuchItem)
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
         default:
             guard let drive = try drives.drive(),
                   try drive.item(id: containerItemIdentifier.rawValue).isFolder
@@ -173,9 +308,6 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
     }
 
-    private static var unsupported: Error {
-        NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
-    }
 }
 
 private final class ProgressObserver: TransferObserver, @unchecked Sendable {
@@ -192,10 +324,10 @@ private final class ProgressObserver: TransferObserver, @unchecked Sendable {
 
 /// File Provider completion handlers are not `Sendable`, but may be called
 /// from any thread.
-private struct Completion: @unchecked Sendable {
-    let call: (URL?, NSFileProviderItem?, NSRange, Error?) -> Void
+private struct Completion<Call>: @unchecked Sendable {
+    let call: Call
 
-    init(_ call: @escaping (URL?, NSFileProviderItem?, NSRange, Error?) -> Void) {
+    init(_ call: Call) {
         self.call = call
     }
 }

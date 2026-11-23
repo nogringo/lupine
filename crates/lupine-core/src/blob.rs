@@ -36,6 +36,12 @@ pub trait BlobStore: Send + Sync {
 
     /// Succeeds when the blob is already absent.
     fn delete(&self, hash: Sha256Hash) -> impl Future<Output = Result<()>> + Send;
+
+    /// Makes sure the store still holds a blob that a new version reuses:
+    /// another device may have collected it. `BlobNotFound` when it is gone.
+    fn replicate(&self, hash: Sha256Hash) -> impl Future<Output = Result<()>> + Send {
+        async move { self.get_range(hash, 0..0).await.map(drop) }
+    }
 }
 
 pub(crate) fn slice(blob: Bytes, range: Range<u64>) -> Result<Bytes> {

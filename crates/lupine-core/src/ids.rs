@@ -123,6 +123,19 @@ impl NodeId {
             .into();
         Self(digest[..Self::LEN].try_into().expect("node id length"))
     }
+
+    /// Node of the item that `request`, a file system integration's id for
+    /// one creation, creates on `device`. A creation replayed after a crash
+    /// finds the node it already created.
+    pub fn created(device: &DeviceId, request: &str) -> Self {
+        let digest: [u8; 32] = Sha256::new()
+            .chain_update(b"lupine/local/created")
+            .chain_update(device.as_bytes())
+            .chain_update(request.as_bytes())
+            .finalize()
+            .into();
+        Self(digest[..Self::LEN].try_into().expect("node id length"))
+    }
 }
 
 impl DeviceId {

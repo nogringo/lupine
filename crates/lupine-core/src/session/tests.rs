@@ -19,9 +19,11 @@ use nostr_sdk::local_relay::{LocalRelay, LocalRelayBuilder};
 
 use super::*;
 use crate::account::Account;
+use crate::blob::MemoryBlobStore;
 use crate::content::{ContentDescriptor, FileKey};
 use crate::ids::DriveId;
 use crate::store::{DriveRecord, Store};
+use crate::writer::{ItemWriter, NewItem, Place};
 
 type Boxed<'a, T> = Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
 
@@ -615,6 +617,7 @@ async fn following_reports_changes_until_stopped() {
                 async {
                     stopped.await.ok();
                 },
+                &Notify::new(),
                 |event| {
                     if matches!(event, Followed::ItemsChanged) {
                         seen.send(()).unwrap();
@@ -630,6 +633,140 @@ async fn following_reports_changes_until_stopped() {
         .await
         .expect("the change is reported");
     assert_eq!(local.item(&node).unwrap().unwrap().name, "Live");
+
+    stop.send(()).unwrap();
+    following.await.unwrap().unwrap();
+}
+
+fn extension(drive: &DriveKeys, store: &Arc<Store>) -> ItemWriter<MemoryBlobStore> {
+    let keys = DriveKeys::from_secret(drive.keys().secret_key().clone());
+    ItemWriter::new(Arc::clone(store), keys, MemoryBlobStore::new()).unwrap()
+}
+
+fn new_item(parent: Option<NodeId>, name: &str, folder: bool) -> NewItem {
+    NewItem {
+        request: format!("{parent:?}/{name}"),
+        place: Place {
+            parent,
+            name: name.into(),
+        },
+        folder,
+        may_exist: false,
+        created: None,
+        modified: None,
+    }
+}
+
+async fn wait_for(mut done: impl AsyncFnMut() -> bool) {
+    for _ in 0..500 {
+        if done().await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out");
+}
+
+#[tokio::test]
+async fn the_session_takes_in_and_sends_what_the_extension_wrote() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let local = store(&drive, &[&a]);
+    let mut session = open(&drive, &local).await;
+    let writer = extension(&drive, &local);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("beach.jpg");
+    std::fs::write(&path, b"jpg").unwrap();
+
+    let photos = writer
+        .create(new_item(None, "Photos", true), None, &|_| {})
+        .await
+        .unwrap()
+        .unwrap();
+    let new = new_item(Some(photos.node), "beach.jpg", false);
+    writer.create(new, Some(&path), &|_| {}).await.unwrap();
+    let anchor = local.anchor().unwrap();
+    assert_eq!(a.wraps().await, 0, "the extension sends nothing");
+
+    assert_eq!(session.take_in().await.unwrap(), 2);
+    assert_eq!(a.wraps().await, 2);
+    assert!(local.outbox(0).unwrap().is_empty());
+    assert_eq!(listing(&session), ["Photos", "Photos/beach.jpg"]);
+    let changes = local.changes(&anchor.to_bytes(), 10).unwrap();
+    assert!(changes.updated.is_empty(), "the extension's items stand");
+
+    let mut other = device(&drive, &[&a]).await;
+    synced(&mut other).await;
+    assert_eq!(listing(&other), ["Photos", "Photos/beach.jpg"]);
+
+    writer.delete(photos.node, None, true).unwrap();
+    assert_eq!(synced(&mut session).await.sent, 2);
+    assert!(session.tree().is_empty());
+    synced(&mut other).await;
+    assert!(other.tree().is_empty());
+    assert_eq!(other.settle().await.unwrap(), 0, "no folder revived");
+}
+
+#[tokio::test]
+async fn the_tree_rules_correct_what_the_extension_wrote() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let mut other = device(&drive, &[&a]).await;
+    other.create_folder(None, "report").await.unwrap();
+    let local = store(&drive, &[&a]);
+    let mut session = open(&drive, &local).await;
+    synced(&mut session).await;
+
+    let writer = extension(&drive, &local);
+    let created = writer
+        .create(new_item(None, "Report", true), None, &|_| {})
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(created.name, "Report");
+    session.take_in().await.unwrap();
+
+    let mut names: Vec<String> = local
+        .children(None, None, 10)
+        .unwrap()
+        .into_iter()
+        .map(|item| item.name)
+        .collect();
+    names.sort();
+    assert_eq!(names, listing(&session));
+    assert!(names.iter().any(|name| name.ends_with(" (2)")));
+}
+
+#[tokio::test]
+async fn following_takes_in_what_the_extension_wrote() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let local = store(&drive, &[&a]);
+    let mut follower = open(&drive, &local).await;
+    let written = Arc::new(Notify::new());
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let wake = Arc::clone(&written);
+    let following = tokio::spawn(async move {
+        follower
+            .follow(
+                async {
+                    stopped.await.ok();
+                },
+                &wake,
+                |_| {},
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let writer = extension(&drive, &local);
+    writer
+        .create(new_item(None, "From Finder", true), None, &|_| {})
+        .await
+        .unwrap();
+    written.notify_one();
+    wait_for(async || a.wraps().await == 1).await;
+    wait_for(async || local.outbox(0).unwrap().is_empty()).await;
 
     stop.send(()).unwrap();
     following.await.unwrap().unwrap();

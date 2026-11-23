@@ -1,9 +1,10 @@
-//! The app's side: keeping the local database up to date with the relays.
+//! The app's side: keeping the local database up to date with the relays,
+//! and sending what the File Provider extension wrote.
 
 use std::sync::Arc;
 
 use lupine_core::session::{DriveSession, Followed};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 use crate::CoreError;
 use crate::local::LocalDrive;
@@ -22,6 +23,7 @@ pub trait SyncObserver: Send + Sync {
 pub struct DriveSync {
     session: Mutex<DriveSession>,
     stop: Cancellation,
+    written: Notify,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -34,6 +36,7 @@ pub async fn open_drive_sync(
     Ok(Arc::new(DriveSync {
         session: Mutex::new(session),
         stop: Cancellation::default(),
+        written: Notify::new(),
     }))
 }
 
@@ -43,7 +46,7 @@ impl DriveSync {
     pub async fn run(&self, observer: Box<dyn SyncObserver>) -> Result<(), CoreError> {
         let mut session = self.session.lock().await;
         let followed = session
-            .follow(self.stop.cancelled(), |event| match event {
+            .follow(self.stop.cancelled(), &self.written, |event| match event {
                 Followed::Syncing => observer.syncing(),
                 Followed::Synced(report) => observer.synced(
                     report
@@ -61,5 +64,11 @@ impl DriveSync {
 
     pub fn stop(&self) {
         self.stop.cancel();
+    }
+
+    /// The File Provider extension wrote to the local database: take it in
+    /// and send it.
+    pub fn written(&self) {
+        self.written.notify_one();
     }
 }

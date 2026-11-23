@@ -49,38 +49,6 @@ impl BlossomStore {
         &self.servers
     }
 
-    /// Makes sure every server holds the blob, copying it to the servers
-    /// that lost it from those that kept it. Run before publishing a version
-    /// that references it, since another device may have collected it.
-    ///
-    /// `BlobNotFound` when no server has it any more.
-    pub async fn replicate(&self, hash: Sha256Hash) -> Result<()> {
-        let held = try_join_all(self.servers.iter().map(|s| retrying(|| s.has(hash)))).await?;
-        let (holders, missing): (Vec<_>, Vec<_>) =
-            self.servers.iter().zip(held).partition(|(_, held)| *held);
-        if missing.is_empty() {
-            return Ok(());
-        }
-        let holders: Vec<_> = holders.into_iter().map(|(server, _)| server).collect();
-        if holders.is_empty() {
-            return Err(Error::BlobNotFound(hash));
-        }
-        let sources: Vec<_> = holders.iter().map(|s| s.blob_url(&hash)).collect();
-        let blob = OnceCell::new();
-        try_join_all(missing.into_iter().map(|(server, _)| {
-            let (holders, sources, blob) = (&holders, &sources, &blob);
-            async move {
-                if server.can_mirror().await && server.mirror(hash, sources).await.is_ok() {
-                    return Ok(());
-                }
-                let blob = blob.get_or_try_init(|| fetch(holders, hash, None)).await?;
-                server.upload(hash, blob.clone()).await
-            }
-        }))
-        .await?;
-        Ok(())
-    }
-
     fn all(&self) -> Vec<&BlossomServer> {
         self.servers.iter().collect()
     }
@@ -126,6 +94,38 @@ impl BlobStore for BlossomStore {
 
     async fn delete(&self, hash: Sha256Hash) -> Result<()> {
         try_join_all(self.servers.iter().map(|s| s.delete(hash))).await?;
+        Ok(())
+    }
+
+    /// Makes sure every server holds the blob, copying it to the servers
+    /// that lost it from those that kept it. Run before publishing a version
+    /// that references it, since another device may have collected it.
+    ///
+    /// `BlobNotFound` when no server has it any more.
+    async fn replicate(&self, hash: Sha256Hash) -> Result<()> {
+        let held = try_join_all(self.servers.iter().map(|s| retrying(|| s.has(hash)))).await?;
+        let (holders, missing): (Vec<_>, Vec<_>) =
+            self.servers.iter().zip(held).partition(|(_, held)| *held);
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let holders: Vec<_> = holders.into_iter().map(|(server, _)| server).collect();
+        if holders.is_empty() {
+            return Err(Error::BlobNotFound(hash));
+        }
+        let sources: Vec<_> = holders.iter().map(|s| s.blob_url(&hash)).collect();
+        let blob = OnceCell::new();
+        try_join_all(missing.into_iter().map(|(server, _)| {
+            let (holders, sources, blob) = (&holders, &sources, &blob);
+            async move {
+                if server.can_mirror().await && server.mirror(hash, sources).await.is_ok() {
+                    return Ok(());
+                }
+                let blob = blob.get_or_try_init(|| fetch(holders, hash, None)).await?;
+                server.upload(hash, blob.clone()).await
+            }
+        }))
+        .await?;
         Ok(())
     }
 }

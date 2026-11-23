@@ -23,6 +23,7 @@ pub mod session;
 pub mod store;
 mod task;
 pub mod tree;
+pub mod writer;
 
 pub use error::{Error, Result};
 

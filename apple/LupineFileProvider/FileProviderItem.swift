@@ -13,19 +13,24 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
     let itemVersion: NSFileProviderItemVersion
     let capabilities: NSFileProviderItemCapabilities
 
+    /// No trash: Finder deletes items for good, after asking.
+    private static let shared: NSFileProviderItemCapabilities = [.allowsReading, .allowsRenaming, .allowsReparenting, .allowsDeleting]
+
     init(_ item: DriveItem) {
         itemIdentifier = NSFileProviderItemIdentifier(item.id)
         parentItemIdentifier = item.parent.map { NSFileProviderItemIdentifier($0) } ?? .rootContainer
         filename = item.name
+        let pathExtension = (item.name as NSString).pathExtension
         if item.isFolder {
-            contentType = .folder
+            // Bundles such as .rtfd documents are folders the system shows as files.
+            let package = pathExtension.isEmpty ? nil : UTType(filenameExtension: pathExtension, conformingTo: .directory)
+            contentType = package.flatMap { $0.conforms(to: .package) ? $0 : nil } ?? .folder
             documentSize = nil
-            capabilities = [.allowsReading, .allowsContentEnumerating]
+            capabilities = Self.shared.union([.allowsContentEnumerating, .allowsAddingSubItems])
         } else {
-            let pathExtension = (item.name as NSString).pathExtension
             contentType = pathExtension.isEmpty ? .data : UTType(filenameExtension: pathExtension) ?? .data
             documentSize = NSNumber(value: item.size)
-            capabilities = [.allowsReading]
+            capabilities = Self.shared.union(.allowsWriting)
         }
         creationDate = item.created.map(Self.date)
         contentModificationDate = item.modified.map(Self.date)
@@ -44,7 +49,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
         creationDate = nil
         contentModificationDate = nil
         itemVersion = NSFileProviderItemVersion(contentVersion: Data(), metadataVersion: Data())
-        capabilities = [.allowsReading, .allowsContentEnumerating]
+        capabilities = [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
     }
 
     static func root() -> FileProviderItem {

@@ -30,6 +30,7 @@ final class AppModel {
     private(set) var driveState = DriveState.none
     private(set) var selfTestResult: String?
     private var sync: DriveSync?
+    private var outbox: OutboxSignal.Listener?
 
     var canOpenDrive: Bool {
         switch driveState {
@@ -71,6 +72,7 @@ final class AppModel {
             driveState = .opening
             let sync = try await openDriveSync(drive: local, secret: secret)
             self.sync = sync
+            outbox = OutboxSignal.Listener { sync.written() }
             signalFinder()
             let reporter = SyncReporter(model: self)
             Task {
@@ -78,6 +80,7 @@ final class AppModel {
                     try await sync.run(observer: reporter)
                 } catch {
                     self.sync = nil
+                    self.outbox = nil
                     self.fail("Sync stopped", error)
                 }
             }

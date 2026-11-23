@@ -1,12 +1,14 @@
 //! The local database of one drive: what this device knows of it, kept
 //! across launches, and the tree as file system integrations show it, with
 //! a change log they enumerate from a sync anchor. SQLite in WAL mode, so
-//! the app writes while the File Provider extension reads.
+//! the app and the File Provider extension share it. The extension writes
+//! its own versions and leaves their wraps in an outbox, which the app's
+//! session sends.
 //!
 //! It holds decrypted metadata, file keys included, like the files a device
 //! downloads. The drive secret is not in it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -24,10 +26,13 @@ use crate::node::{DeviceClock, FileMeta, NodeVersion};
 use crate::replica::{Record, Snapshot, WrapState};
 use crate::tree::EntryKind;
 
-const SCHEMA_VERSION: i32 = 1;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
-const SCHEMA: &str = "
+/// Migration `n` takes the schema from version `n` to `n + 1`. A new
+/// database runs them all.
+const MIGRATIONS: [&str; 2] = [SCHEMA_V1, MIGRATION_V2];
+
+const SCHEMA_V1: &str = "
 CREATE TABLE drive (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     id BLOB NOT NULL,
@@ -76,12 +81,65 @@ CREATE INDEX items_by_parent ON items (parent, node) WHERE removed = 0;
 CREATE INDEX items_by_anchor ON items (anchor);
 ";
 
+/// The File Provider extension writes versions too, under a device id of
+/// its own, and leaves their wraps in the outbox for the session to send.
+const MIGRATION_V2: &str = "
+ALTER TABLE versions ADD COLUMN node BLOB;
+UPDATE versions SET node = unhex(json ->> '$.node');
+CREATE INDEX versions_by_node ON versions (node);
+CREATE TABLE writers (
+    writer INTEGER PRIMARY KEY,
+    device BLOB NOT NULL,
+    clock INTEGER NOT NULL
+);
+INSERT INTO writers (writer, device, clock) SELECT 0, device, clock FROM drive;
+INSERT INTO writers (writer, device, clock) SELECT 1, randomblob(16), 0 FROM drive;
+ALTER TABLE drive DROP COLUMN device;
+ALTER TABLE drive DROP COLUMN clock;
+CREATE TABLE outbox (
+    seq INTEGER PRIMARY KEY,
+    wrap BLOB NOT NULL,
+    barrier INTEGER NOT NULL
+);
+";
+
 const STATE_VERSION: i64 = 0;
 const STATE_UNREADABLE: i64 = 1;
 const STATE_JUNK: i64 = 2;
 const STATE_DELETED: i64 = 3;
 
 const ITEM_COLUMNS: &str = "node, parent, name, folder, created, modified, file";
+
+/// The processes of this install that write versions. Each has its own
+/// device id, since version vectors take a device's versions to follow one
+/// another, each written after seeing the last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Writer {
+    /// The drive session, which syncs with the relays.
+    Session,
+    /// A file system integration in a process of its own, such as a File
+    /// Provider extension.
+    Extension,
+}
+
+impl Writer {
+    fn code(self) -> i64 {
+        match self {
+            Self::Session => 0,
+            Self::Extension => 1,
+        }
+    }
+}
+
+/// A wrap the extension wrote, for the session to send.
+#[derive(Debug)]
+pub(crate) struct Outgoing {
+    pub seq: i64,
+    /// Sent only once every earlier wrap was.
+    pub barrier: bool,
+    /// `None` once the wrap was deleted: there is nothing left to send.
+    pub event: Option<Event>,
+}
 
 /// What the device needs to open the drive, besides its secret.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,19 +210,14 @@ impl Store {
 
     fn migrate(mut conn: Connection) -> Result<Self> {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let version: i32 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        match version {
-            0 => {
-                tx.execute_batch(SCHEMA)?;
-                tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-            }
-            SCHEMA_VERSION => {}
-            _ => {
-                return Err(Error::Malformed(
-                    "the local database is from a later version",
-                ));
-            }
+        let version: u32 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        let applied = MIGRATIONS.get(version as usize..).ok_or(Error::Malformed(
+            "the local database is from a later version",
+        ))?;
+        for migration in applied {
+            tx.execute_batch(migration)?;
         }
+        tx.pragma_update(None, "user_version", MIGRATIONS.len() as u32)?;
         tx.commit()?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -220,18 +273,23 @@ impl Store {
         match existing {
             None => {
                 tx.execute(
-                    "INSERT INTO drive (singleton, id, pubkey, epoch, relays, servers, device, clock, synced, generation, anchor)
-                     VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, 0)",
+                    "INSERT INTO drive (singleton, id, pubkey, epoch, relays, servers, synced, generation, anchor)
+                     VALUES (1, ?1, ?2, ?3, ?4, ?5, 0, ?6, 0)",
                     params![
                         drive.id.as_bytes(),
                         drive.pubkey.as_bytes(),
                         drive.epoch,
                         relays,
                         servers,
-                        DeviceId::random().as_bytes(),
                         random_bytes::<8>(),
                     ],
                 )?;
+                for writer in [Writer::Session, Writer::Extension] {
+                    tx.execute(
+                        "INSERT INTO writers (writer, device, clock) VALUES (?1, ?2, 0)",
+                        params![writer.code(), DeviceId::random().as_bytes()],
+                    )?;
+                }
             }
             Some((id, _)) if id != drive.id.as_bytes() => {
                 return Err(Error::Malformed("the local database holds another drive"));
@@ -250,22 +308,29 @@ impl Store {
         Ok(())
     }
 
-    /// The device's clock, and whether every drive relay was synced once.
+    /// The session's clock, and whether every drive relay was synced once.
     pub fn device_state(&self) -> Result<(DeviceClock, bool)> {
-        let (device, last, synced) =
-            self.lock()
-                .query_row("SELECT device, clock, synced FROM drive", [], |row| {
-                    Ok((
-                        row.get::<_, Vec<u8>>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, bool>(2)?,
-                    ))
-                })?;
-        let clock = DeviceClock {
-            device: DeviceId(array(device)?),
-            last: last as u64,
-        };
-        Ok((clock, synced))
+        let conn = self.lock();
+        let synced = conn.query_row("SELECT synced FROM drive", [], |row| row.get(0))?;
+        Ok((writer_clock(&conn, Writer::Session)?, synced))
+    }
+
+    /// The clock `writer` numbers its versions with.
+    pub fn clock(&self, writer: Writer) -> Result<DeviceClock> {
+        writer_clock(&self.lock(), writer)
+    }
+
+    /// The versions of `node` that some wrap not deleted still carries.
+    pub fn node_versions(&self, node: &NodeId) -> Result<Vec<(VersionId, NodeVersion)>> {
+        let conn = self.lock();
+        let mut statement = conn.prepare_cached("SELECT id, json FROM versions WHERE node = ?1")?;
+        let mut rows = statement.query([node.as_bytes()])?;
+        let mut versions = Vec::new();
+        while let Some(row) = rows.next()? {
+            let version: NodeVersion = serde_json::from_str(&row.get::<_, String>(1)?)?;
+            versions.push((VersionId(array(row.get(0)?)?), version));
+        }
+        Ok(versions)
     }
 
     pub(crate) fn snapshot(&self) -> Result<Snapshot> {
@@ -327,43 +392,88 @@ impl Store {
         for record in records {
             write_record(&tx, record)?;
         }
-        let mut anchor: u64 = tx.query_row("SELECT anchor FROM drive", [], |row| {
-            row.get::<_, i64>(0).map(|a| a as u64)
-        })?;
+        write_items(&tx, items)?;
+        set_clock(&tx, Writer::Session, clock)?;
+        tx.execute("UPDATE drive SET synced = synced OR ?1", [synced])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// What the extension wrote, in one transaction: the records, its
+    /// clock, the items they change, and `outbox`, the wraps for the session
+    /// to send, in order, each with its barrier.
+    pub(crate) fn commit_extension(
+        &self,
+        records: &[Record],
+        clock: DeviceClock,
+        items: &ItemChanges,
+        outbox: &[(EventId, bool)],
+    ) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        for record in records {
+            write_record(&tx, record)?;
+        }
+        write_items(&tx, items)?;
+        set_clock(&tx, Writer::Extension, clock)?;
         {
-            let mut upsert = tx.prepare_cached(
-                "INSERT INTO items (node, parent, name, folder, created, modified, file, anchor, removed)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0)
-                 ON CONFLICT (node) DO UPDATE SET
-                    parent = excluded.parent, name = excluded.name, folder = excluded.folder,
-                    created = excluded.created, modified = excluded.modified, file = excluded.file,
-                    anchor = excluded.anchor, removed = 0",
-            )?;
-            for item in &items.updated {
-                anchor += 1;
-                let file = item.file.as_ref().map(serde_json::to_string).transpose()?;
-                upsert.execute(params![
-                    item.node.as_bytes(),
-                    item.parent.as_ref().map(NodeId::as_bytes),
-                    item.name,
-                    item.is_folder(),
-                    item.created,
-                    item.modified,
-                    file,
-                    anchor as i64,
-                ])?;
-            }
-            let mut remove =
-                tx.prepare_cached("UPDATE items SET removed = 1, anchor = ?2 WHERE node = ?1")?;
-            for node in &items.removed {
-                anchor += 1;
-                remove.execute(params![node.as_bytes(), anchor as i64])?;
+            let mut insert =
+                tx.prepare_cached("INSERT INTO outbox (wrap, barrier) VALUES (?1, ?2)")?;
+            for (wrap, barrier) in outbox {
+                insert.execute(params![wrap.as_bytes(), barrier])?;
             }
         }
-        tx.execute(
-            "UPDATE drive SET clock = ?1, synced = synced OR ?2, anchor = ?3",
-            params![clock.last as i64, synced, anchor as i64],
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The outbox after `seq`, in the order written.
+    pub(crate) fn outbox(&self, after: i64) -> Result<Vec<Outgoing>> {
+        let conn = self.lock();
+        let mut statement = conn.prepare_cached(
+            "SELECT outbox.seq, outbox.barrier, wraps.event FROM outbox
+             LEFT JOIN wraps ON wraps.id = outbox.wrap
+             WHERE outbox.seq > ?1 ORDER BY outbox.seq",
         )?;
+        let mut rows = statement.query([after])?;
+        let mut outgoing = Vec::new();
+        while let Some(row) = rows.next()? {
+            let event = row
+                .get::<_, Option<String>>(2)?
+                .map(Event::from_json)
+                .transpose()
+                .map_err(|e| Error::Nostr(e.to_string()))?;
+            outgoing.push(Outgoing {
+                seq: row.get(0)?,
+                barrier: row.get(1)?,
+                event,
+            });
+        }
+        Ok(outgoing)
+    }
+
+    /// The wraps still in the outbox.
+    pub(crate) fn outbox_wraps(&self) -> Result<HashSet<EventId>> {
+        let conn = self.lock();
+        let mut statement = conn.prepare_cached("SELECT wrap FROM outbox")?;
+        let mut rows = statement.query([])?;
+        let mut wraps = HashSet::new();
+        while let Some(row) = rows.next()? {
+            wraps.insert(event_id(row.get(0)?)?);
+        }
+        Ok(wraps)
+    }
+
+    /// Takes `seqs` out of the outbox.
+    pub(crate) fn sent(&self, seqs: &[i64]) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        {
+            let mut delete = tx.prepare_cached("DELETE FROM outbox WHERE seq = ?1")?;
+            for seq in seqs {
+                delete.execute([seq])?;
+            }
+        }
         tx.commit()?;
         Ok(())
     }
@@ -425,6 +535,17 @@ impl Store {
             limit as i64,
         ])?;
         collect_items(rows)
+    }
+
+    /// The item named exactly `name` in `parent`, `None` for the drive root.
+    pub fn child_named(&self, parent: Option<NodeId>, name: &str) -> Result<Option<Item>> {
+        let conn = self.lock();
+        let mut statement = conn.prepare_cached(&format!(
+            "SELECT {ITEM_COLUMNS} FROM items
+             WHERE parent IS ?1 AND name = ?2 AND removed = 0 ORDER BY node LIMIT 1"
+        ))?;
+        let rows = statement.query(params![parent.as_ref().map(NodeId::as_bytes), name])?;
+        Ok(collect_items(rows)?.pop())
     }
 
     /// Every item after `after`, by node id.
@@ -513,8 +634,14 @@ fn write_record(tx: &rusqlite::Transaction<'_>, record: &Record) -> Result<()> {
             ])?;
         }
         Record::Version { id, version } => {
-            tx.prepare_cached("INSERT OR IGNORE INTO versions (id, json) VALUES (?1, ?2)")?
-                .execute(params![id.as_bytes(), serde_json::to_string(version)?])?;
+            tx.prepare_cached(
+                "INSERT OR IGNORE INTO versions (id, node, json) VALUES (?1, ?2, ?3)",
+            )?
+            .execute(params![
+                id.as_bytes(),
+                version.node.as_bytes(),
+                serde_json::to_string(version)?
+            ])?;
         }
         Record::VersionGone(id) => {
             tx.prepare_cached("DELETE FROM versions WHERE id = ?1")?
@@ -535,6 +662,64 @@ fn write_record(tx: &rusqlite::Transaction<'_>, record: &Record) -> Result<()> {
                 .execute(params![wrap.as_bytes(), by.as_bytes()])?;
         }
     }
+    Ok(())
+}
+
+/// Each changed item takes the next anchor.
+fn write_items(tx: &rusqlite::Transaction<'_>, items: &ItemChanges) -> Result<()> {
+    let mut anchor: u64 = tx.query_row("SELECT anchor FROM drive", [], |row| {
+        row.get::<_, i64>(0).map(|a| a as u64)
+    })?;
+    let mut upsert = tx.prepare_cached(
+        "INSERT INTO items (node, parent, name, folder, created, modified, file, anchor, removed)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0)
+         ON CONFLICT (node) DO UPDATE SET
+            parent = excluded.parent, name = excluded.name, folder = excluded.folder,
+            created = excluded.created, modified = excluded.modified, file = excluded.file,
+            anchor = excluded.anchor, removed = 0",
+    )?;
+    for item in &items.updated {
+        anchor += 1;
+        let file = item.file.as_ref().map(serde_json::to_string).transpose()?;
+        upsert.execute(params![
+            item.node.as_bytes(),
+            item.parent.as_ref().map(NodeId::as_bytes),
+            item.name,
+            item.is_folder(),
+            item.created,
+            item.modified,
+            file,
+            anchor as i64,
+        ])?;
+    }
+    let mut remove =
+        tx.prepare_cached("UPDATE items SET removed = 1, anchor = ?2 WHERE node = ?1")?;
+    for node in &items.removed {
+        anchor += 1;
+        remove.execute(params![node.as_bytes(), anchor as i64])?;
+    }
+    tx.execute("UPDATE drive SET anchor = ?1", [anchor as i64])?;
+    Ok(())
+}
+
+fn writer_clock(conn: &Connection, writer: Writer) -> Result<DeviceClock> {
+    let (device, last) = conn.query_row(
+        "SELECT device, clock FROM writers WHERE writer = ?1",
+        [writer.code()],
+        |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    Ok(DeviceClock {
+        device: DeviceId(array(device)?),
+        last: last as u64,
+    })
+}
+
+/// Never moves back: the clock is the device's last sequence number.
+fn set_clock(tx: &rusqlite::Transaction<'_>, writer: Writer, clock: DeviceClock) -> Result<()> {
+    tx.execute(
+        "UPDATE writers SET clock = max(clock, ?2) WHERE writer = ?1",
+        params![writer.code(), clock.last as i64],
+    )?;
     Ok(())
 }
 
@@ -630,5 +815,56 @@ mod tests {
         let reopened = Store::open(&path).unwrap();
         assert_eq!(reopened.drive().unwrap(), Some(drive));
         assert_eq!(reopened.device_state().unwrap().0.device, clock.device);
+        let extension = reopened.clock(Writer::Extension).unwrap();
+        assert_ne!(extension.device, clock.device);
+    }
+
+    #[test]
+    fn version_1_databases_keep_their_device_and_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("drive.sqlite");
+        let device = DeviceId::random();
+        let version = NodeVersion::folder(
+            crate::node::Stamp::next(device, 0, 0),
+            NodeId::random(),
+            None,
+            "Photos",
+        );
+        let id = VersionId([3; 32]);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            let drive = record(1);
+            conn.execute(
+                "INSERT INTO drive (singleton, id, pubkey, epoch, relays, servers, device, clock, synced, generation, anchor)
+                 VALUES (1, ?1, ?2, 0, '[]', '[]', ?3, 42, 1, ?4, 0)",
+                params![
+                    drive.id.as_bytes(),
+                    drive.pubkey.as_bytes(),
+                    device.as_bytes(),
+                    [9u8; 8]
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO versions (id, json) VALUES (?1, ?2)",
+                params![id.as_bytes(), serde_json::to_string(&version).unwrap()],
+            )
+            .unwrap();
+        }
+
+        let store = Store::open(&path).unwrap();
+        let (clock, synced) = store.device_state().unwrap();
+        assert_eq!((clock.device, clock.last, synced), (device, 42, true));
+        let extension = store.clock(Writer::Extension).unwrap();
+        assert_ne!(extension.device, device);
+        assert_eq!(extension.last, 0);
+        let versions = store.node_versions(&version.node).unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].0, id);
+        drop(store);
+        let reopened = Store::open(&path).unwrap();
+        assert_eq!(reopened.clock(Writer::Extension).unwrap(), extension);
     }
 }

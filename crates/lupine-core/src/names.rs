@@ -18,7 +18,7 @@ pub fn validate(name: &str) -> Result<()> {
         || name == ".."
         || name.contains(['/', '\0']);
     if invalid {
-        return Err(Error::Malformed("invalid node name"));
+        return Err(Error::InvalidName);
     }
     Ok(())
 }

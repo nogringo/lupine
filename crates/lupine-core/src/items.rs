@@ -36,9 +36,7 @@ impl Item {
 
     /// Changes with the content, and only then. `None` for folders.
     pub fn content_version(&self) -> Option<[u8; 32]> {
-        let file = self.file.as_ref()?;
-        let json = serde_json::to_vec(file).expect("file metadata serializes");
-        Some(Sha256::digest(json).into())
+        content_version(self.file.as_ref())
     }
 
     /// Changes with anything shown but the content.
@@ -53,6 +51,12 @@ impl Item {
         let json = serde_json::to_vec(&shown).expect("item metadata serializes");
         Sha256::digest(json).into()
     }
+}
+
+/// What [`Item::content_version`] gives for `file`.
+pub fn content_version(file: Option<&FileMeta>) -> Option<[u8; 32]> {
+    let json = serde_json::to_vec(file?).expect("file metadata serializes");
+    Some(Sha256::digest(json).into())
 }
 
 /// Every entry of `tree`, as an item.

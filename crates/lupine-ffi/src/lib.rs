@@ -10,6 +10,7 @@ use lupine_core::io::MemoryFile;
 mod local;
 mod reader;
 mod sync;
+mod writer;
 
 uniffi::setup_scaffolding!();
 
@@ -18,6 +19,13 @@ uniffi::setup_scaffolding!();
 pub enum CoreError {
     #[error("no such item")]
     NoSuchItem,
+    /// May only be late.
+    #[error("no such parent folder")]
+    NoSuchParent,
+    #[error("the folder is not empty")]
+    DirectoryNotEmpty,
+    #[error("{0}")]
+    InvalidName(String),
     #[error("the requested version is no longer available")]
     VersionNoLongerAvailable,
     /// Enumerate everything again.
@@ -38,6 +46,10 @@ impl From<lupine_core::Error> for CoreError {
     fn from(e: lupine_core::Error) -> Self {
         match e {
             lupine_core::Error::AnchorExpired => Self::AnchorExpired,
+            lupine_core::Error::UnknownNode => Self::NoSuchItem,
+            lupine_core::Error::UnknownParent => Self::NoSuchParent,
+            lupine_core::Error::FolderNotEmpty => Self::DirectoryNotEmpty,
+            e @ lupine_core::Error::InvalidName => Self::InvalidName(e.to_string()),
             e if e.is_transient() => Self::Unreachable(e.to_string()),
             e => Self::Core(e.to_string()),
         }

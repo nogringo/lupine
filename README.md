@@ -2,7 +2,7 @@
 
 End-to-end encrypted drive on Nostr and Blossom. Native apps backed by a shared Rust core; macOS comes first.
 
-Early development: the content format, the Blossom client, the Nostr layer and the local database exist, and Finder shows a drive read-only. Writing from Finder and folder sync do not yet. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
+Early development: the content format, the Blossom client, the Nostr layer and the local database exist, and Finder reads and writes a drive. Folder sync and sign-in do not exist yet. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
 
 ## Layout
 
@@ -28,13 +28,13 @@ cd apple && xcodegen generate && open Lupine.xcodeproj
 
 The File Provider extension starts disabled. Turn it on in System Settings, General, Login Items & Extensions, then Lupine shows up in the Finder sidebar.
 
-## Try the read path
+## Try it
 
-Finder cannot write to a drive yet, so the `seed` example creates one from a local folder and prints its recovery key. The relays and Blossom servers are yours to pick; the servers must store arbitrary blobs, which media hosts refuse.
+There is no sign-in yet, so the `seed` example creates a drive holding a copy of a local folder, empty or not, and prints its recovery key. The relays and Blossom servers are yours to pick; the servers must store arbitrary blobs, which media hosts refuse.
 
 ```sh
 cargo run --release -p lupine-core --example seed -- \
   --relay wss://<relay> --server https://<blossom-server> <folder>
 ```
 
-Paste the recovery key into the Lupine menu, under Drive, then open Lupine in the Finder sidebar.
+Paste the recovery key into the Lupine menu, under Drive, then open Lupine in the Finder sidebar. What Finder changes there reaches the relays while the Lupine app runs.

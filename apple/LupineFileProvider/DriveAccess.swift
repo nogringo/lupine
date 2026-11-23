@@ -8,6 +8,7 @@ final class DriveAccess: @unchecked Sendable {
     private let lock = NSLock()
     private var local: LocalDrive?
     private var reader: ContentReader?
+    private var writer: ItemWriter?
 
     init(domain: String) {
         self.domain = domain
@@ -23,15 +24,32 @@ final class DriveAccess: @unchecked Sendable {
             if let reader {
                 return reader
             }
-            guard let local = try openDrive(),
-                  let secret = try DriveKeychain.secret(drive: local.info().id)
-            else {
-                throw NSFileProviderError(.notAuthenticated)
-            }
+            let (local, secret) = try unlocked()
             let reader = try openContentReader(drive: local, secret: secret)
             self.reader = reader
             return reader
         }
+    }
+
+    func itemWriter() throws -> ItemWriter {
+        try lock.withLock {
+            if let writer {
+                return writer
+            }
+            let (local, secret) = try unlocked()
+            let writer = try openItemWriter(drive: local, secret: secret)
+            self.writer = writer
+            return writer
+        }
+    }
+
+    private func unlocked() throws -> (LocalDrive, String) {
+        guard let local = try openDrive(),
+              let secret = try DriveKeychain.secret(drive: local.info().id)
+        else {
+            throw NSFileProviderError(.notAuthenticated)
+        }
+        return (local, secret)
     }
 
     private func openDrive() throws -> LocalDrive? {
@@ -52,6 +70,8 @@ enum ProviderError {
         switch error {
         case .NoSuchItem:
             return NSFileProviderError(.noSuchItem)
+        case .DirectoryNotEmpty:
+            return NSFileProviderError(.directoryNotEmpty)
         case .VersionNoLongerAvailable:
             return NSFileProviderError(.versionNoLongerAvailable)
         case .AnchorExpired:
@@ -60,7 +80,7 @@ enum ProviderError {
             return CocoaError(.userCancelled)
         case .Unreachable:
             return NSFileProviderError(.serverUnreachable)
-        case .Core(let message), .Check(let message):
+        case .NoSuchParent(let message), .InvalidName(let message), .Core(let message), .Check(let message):
             return NSError(
                 domain: "ovh.uid.lupine",
                 code: 1,

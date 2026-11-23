@@ -73,6 +73,19 @@ impl<'a> Heads<'a> {
             .expect("heads are never empty")
     }
 
+    /// The winner and the heads that hold its state: what a device showing
+    /// the node has seen. An edit made there replaces these and leaves any
+    /// other head in conflict, so its content becomes a conflict copy
+    /// instead of being lost.
+    pub fn seen(&self) -> Vec<&'a NodeVersion> {
+        let (_, winner) = self.winner();
+        self.0
+            .iter()
+            .map(|(_, head)| *head)
+            .filter(|head| head.same_state(winner))
+            .collect()
+    }
+
     /// Heads that differ only in who wrote them and when are no conflict.
     pub fn in_conflict(&self) -> bool {
         let (_, winner) = self.winner();

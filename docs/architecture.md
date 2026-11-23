@@ -91,9 +91,11 @@ Reads go to the servers in order and move on when one fails, lacks the blob or s
 ## Processes on macOS
 
 - `Lupine.app`, a menu bar agent started at login. It keeps the relay subscriptions, runs folder sync and signals the File Provider enumerators when the remote tree changes. The extension cannot do this itself: the system stops it when idle, and Nostr has no push.
-- `LupineFileProvider.appex` serves Finder: enumerates from the local database, fetches (partial) contents from Blossom, uploads new and modified files.
+- `LupineFileProvider.appex` serves Finder: enumerates from the local database, fetches (partial) contents from Blossom, uploads new and modified files and writes Finder's changes to the local database. It does not reach the relays: it leaves the new wraps in an outbox and posts a Darwin notification, on which the app sends them.
 - Both share an SQLite database in the App Group container (`936HBZB935.ovh.uid.lupine`) and keys in a shared keychain group.
 - The extension fetches content into the system's temporary directory. A partial fetch writes the requested range, widened to whole 64 KiB segments and to the system's alignment, at its offsets in a sparse file of the full size.
+- The extension uploads from an APFS clone of the file the system hands it, so an edit made during the upload cannot mix into the version. An edit uploads only the chunks that changed, under the file's key.
+- Finder has no trash for the drive: it asks, then deletes for good. `.DS_Store` files, symbolic links and aliases stay on the Mac.
 
 Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distribution through Developer ID or the Mac App Store both stay possible.
 
@@ -105,16 +107,19 @@ Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distr
 - Deterministic rules settle the tree, so every device shows the same one: a folder deleted while something moved into it comes back, cycles from concurrent moves are broken, and names that collide, case and Unicode normalization included, get a suffix.
 - A synced folder is a pair (local path, remote folder node), reconciled by a three-way merge of the local scan, the last synced state and the remote tree.
 - Files are snapshotted with APFS `clonefile` before upload, so editing a file during a long upload cannot produce a mixed version.
+- A change from Finder replaces the heads that hold the state Finder showed, and leaves any other head in conflict. New content made from content Finder no longer shows replaces nothing: it stays in conflict with what came since, which becomes a conflict copy. Deleting a file whose content changed since Finder showed it keeps the file and shows it again; an edit of a node deleted elsewhere brings it back.
 
 ## Local database
 
-Each drive has its own SQLite database, in WAL mode: the app writes it, the File Provider extension reads it.
+Each drive has its own SQLite database, in WAL mode, shared by the app and the File Provider extension. The app writes what it syncs, the extension what Finder changes.
 
 - It holds what the device knows of the drive: every wrap and deletion seen, the versions they carry, and the events relays may still need. A launch restores the replica from it without decrypting or verifying anything again, and the next sync downloads only what is new.
 - It also holds the tree as Finder shows it, one row per item. Each change to an item takes the next number of a counter, which is the File Provider sync anchor. Anchors carry a random id of the database, so an anchor from a deleted and recreated database expires instead of skipping changes. Items that leave the tree stay as removed rows, so a change enumeration reports them.
 - The app writes it after every step (a sync, a batch of live events, a publication) and signals the working set when items changed. The working set is the whole drive, since the extension does not track which folders are materialized yet.
+- The extension writes each version with the item Finder asked for, in one transaction, so Finder finds the item at once. When the tree rules show something else, such as a suffix for a colliding name, the app corrects the item once it takes the version in.
+- The extension's wraps wait in an outbox, in the order written. The app takes them into its replica and sends them a wave at a time: a folder's tombstone leaves only once those of what it held reached a relay, so a deletion cut short never revives a folder. Sync repairs leave the outbox alone.
 - It holds decrypted metadata, file keys included, like the files a device downloads. The drive secret stays in the keychain.
-- It holds the device id, one per drive on each install, so it is excluded from backups: a restored copy would reuse that id. Losing the database costs a full sync, nothing else.
+- It holds two device ids per drive, one for the app and one for the extension. Version vectors take a device's versions to follow one another, each written after seeing the last, which two processes writing at once would break. The database is excluded from backups: a restored copy would reuse these ids. Losing the database costs a full sync, and Finder changes not yet sent.
 
 ## Open questions
 
@@ -125,13 +130,15 @@ Each drive has its own SQLite database, in WAL mode: the app writes it, the File
 - Blossom servers: which general-purpose servers to recommend or run, since media hosts refuse encrypted blobs. Range support also needs checking server by server.
 - Sharing: planned as "spaces", folders with their own key and member list, shared through NIP-59 gift wraps. A shared key lets every member write as any other, so members will sign their versions inside the payload. Not designed yet.
 - UI toolkits for Windows and Linux.
+- Finder deletions: deleting a folder also deletes what reached the database under it after Finder last enumerated it. The extension could keep those, as it keeps a file edited since.
+- Tags, extended attributes and Finder flags are not kept yet.
 
 ## Roadmap
 
 1. Content format and transfer pipeline, macOS skeleton (done).
 2. Blossom client: BUD-01, 02, 11, 12 and 13, mirroring to every server (done).
 3. Nostr: drive descriptor, node versions and their graph, compaction, relay sync (done; blob collection and key rotation remain).
-4. Local database and the File Provider read path (enumerate, fetch, partial fetch).
-5. File Provider write path (create, modify, move, delete).
+4. Local database and the File Provider read path (enumerate, fetch, partial fetch) (done).
+5. File Provider write path (create, modify, move, delete) (done).
 6. Folder sync engine.
 7. Sign-in (nsec, NIP-46), onboarding, settings.

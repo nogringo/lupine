@@ -46,7 +46,7 @@ impl Stamp {
 }
 
 /// Numbers the versions one device writes. The caller persists `last`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeviceClock {
     pub device: DeviceId,
     pub last: u64,
