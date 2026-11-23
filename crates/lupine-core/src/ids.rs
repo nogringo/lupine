@@ -77,6 +77,12 @@ hex_id!(
 );
 
 hex_id!(
+    /// Identity of a drive for its whole life, across key rotations.
+    DriveId,
+    16
+);
+
+hex_id!(
     /// Random id of an install. Version vectors count each device's
     /// versions, so two installs must never share one.
     DeviceId,
@@ -120,6 +126,12 @@ impl NodeId {
 }
 
 impl DeviceId {
+    pub fn random() -> Self {
+        Self(random_bytes())
+    }
+}
+
+impl DriveId {
     pub fn random() -> Self {
         Self(random_bytes())
     }

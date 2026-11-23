@@ -4,11 +4,13 @@
 //! encrypted with a key only the drive holds, which also authenticates it,
 //! since anyone can publish a gift wrap to the drive's pubkey.
 
-use nostr::event::FinalizeEvent;
-use nostr::event::{Event, EventBuilder, Kind, Tag};
+use nostr::event::{Event, EventBuilder, EventId, Kind, Tag};
+use nostr::event::{FinalizeEvent, IntoEventBuilder};
 use nostr::key::{Keys, PublicKey, SecretKey};
+use nostr::nips::nip09::EventDeletionRequest;
+use nostr::nips::nip17::{self, InboxRelayList};
 use nostr::nips::nip44::v2::{ConversationKey, decrypt_to_bytes, encrypt_to_bytes_with_nonce};
-use nostr::types::Timestamp;
+use nostr::types::{RelayUrl, Timestamp};
 
 use crate::crypto::{SymmetricKey, random_bytes};
 use crate::encoding;
@@ -21,6 +23,20 @@ const MAX_BACKDATE_SECS: u64 = 2 * 24 * 60 * 60;
 /// What NIP-44 pads the seal of the shortest NIP-17 message to, so no
 /// version is smaller than a one-word DM.
 pub const MIN_PLAINTEXT_LEN: usize = 896;
+/// Wraps named by one deletion, to stay under relay size limits.
+pub const DELETION_BATCH: usize = 100;
+
+/// What a gift wrap addressed to the drive holds.
+#[derive(Debug)]
+pub enum Unwrapped {
+    Version(VersionId, Box<NodeVersion>),
+    /// Decrypts with the drive keys but is not a version this client can
+    /// read, such as a later format. Kept, and ignored.
+    Unreadable(Error),
+    /// Fails to decrypt: a message, a forgery, a payload moved from another
+    /// wrap. The drive deletes it.
+    Junk,
+}
 
 pub struct DriveKeys {
     keys: Keys,
@@ -86,24 +102,103 @@ impl DriveKeys {
         Ok((VersionId::of(&plaintext), event))
     }
 
-    /// `None` for gift wraps that are not versions of this drive: messages,
-    /// versions of another drive, forgeries, payloads moved to another wrap.
-    pub fn unwrap(&self, event: &Event) -> Result<Option<(VersionId, NodeVersion)>> {
+    /// `None` unless the event is a validly signed gift wrap addressed to
+    /// the drive.
+    pub fn unwrap(&self, event: &Event) -> Option<Unwrapped> {
         let addressed_here = event.tags.public_keys().any(|pk| pk == self.public_key());
         if event.kind != Kind::GiftWrap || !addressed_here || event.verify().is_err() {
-            return Ok(None);
+            return None;
         }
-        let Some(payload) = encoding::decode(&event.content) else {
-            return Ok(None);
+        let key = self.wrap_key(&event.pubkey);
+        let plaintext = encoding::decode(&event.content)
+            .and_then(|payload| decrypt_to_bytes(&key, &payload).ok());
+        let Some(plaintext) = plaintext else {
+            return Some(Unwrapped::Junk);
         };
-        let Ok(plaintext) = decrypt_to_bytes(&self.wrap_key(&event.pubkey), &payload) else {
-            return Ok(None);
-        };
-        let mut version: NodeVersion = serde_json::from_slice(&plaintext)?;
-        version.normalize();
-        version.validate()?;
-        Ok(Some((VersionId::of(&plaintext), version)))
+        let version = serde_json::from_slice::<NodeVersion>(&plaintext)
+            .map_err(Error::from)
+            .and_then(|mut version| {
+                version.normalize();
+                version.validate()?;
+                Ok(version)
+            });
+        Some(match version {
+            Ok(version) => Unwrapped::Version(VersionId::of(&plaintext), Box::new(version)),
+            Err(e) => Unwrapped::Unreadable(e),
+        })
     }
+
+    /// NIP-09 deletions of wraps addressed to the drive. NIP-59 has relays
+    /// honor them from the recipient, whatever key signed the wrap.
+    pub fn deletions(&self, wraps: impl IntoIterator<Item = EventId>) -> Result<Vec<Event>> {
+        let wraps: Vec<EventId> = wraps.into_iter().collect();
+        wraps
+            .chunks(DELETION_BATCH)
+            .map(|batch| {
+                let kind = Tag::parse(["k", "1059"]).map_err(|e| Error::Nostr(e.to_string()))?;
+                EventDeletionRequest::new()
+                    .ids(batch.iter().copied())
+                    .into_event_builder()
+                    .tag(kind)
+                    .finalize(&self.keys)
+                    .map_err(|e| Error::Nostr(e.to_string()))
+            })
+            .collect()
+    }
+
+    /// Kind 10050: the relays that store the drive's versions.
+    pub fn relay_list(&self, relays: impl IntoIterator<Item = RelayUrl>) -> Result<Event> {
+        InboxRelayList::new(relays)
+            .into_event_builder()
+            .finalize(&self.keys)
+            .map_err(|e| Error::Nostr(e.to_string()))
+    }
+
+    /// Kind 10063 (BUD-03): the drive's Blossom servers, most trusted first.
+    pub fn server_list<I, S>(&self, servers: I) -> Result<Event>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let tags = servers
+            .into_iter()
+            .map(|url| Tag::parse(["server", url.as_ref()]))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::Nostr(e.to_string()))?;
+        EventBuilder::new(Kind::BlossomServerList, "")
+            .tags(tags)
+            .finalize(&self.keys)
+            .map_err(|e| Error::Nostr(e.to_string()))
+    }
+}
+
+/// The wraps a drive deletion names, or nothing when `event` is not one.
+pub fn deleted_wraps(drive: &PublicKey, event: &Event) -> Vec<EventId> {
+    if event.kind != Kind::EventDeletion || event.pubkey != *drive || event.verify().is_err() {
+        return Vec::new();
+    }
+    event.tags.event_ids().collect()
+}
+
+pub fn read_relay_list(event: &Event) -> Vec<RelayUrl> {
+    if event.kind != Kind::InboxRelays {
+        return Vec::new();
+    }
+    nip17::extract_relay_list(event).collect()
+}
+
+pub fn read_server_list(event: &Event) -> Vec<String> {
+    if event.kind != Kind::BlossomServerList {
+        return Vec::new();
+    }
+    event
+        .tags
+        .iter()
+        .filter_map(|tag| match tag.as_slice() {
+            [name, url, ..] if name == "server" => Some(url.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -122,6 +217,13 @@ mod tests {
 
     fn folder(name: &str) -> NodeVersion {
         NodeVersion::folder(stamp(), NodeId::random(), None, name)
+    }
+
+    fn read(drive: &DriveKeys, event: &Event) -> Option<(VersionId, NodeVersion)> {
+        match drive.unwrap(event)? {
+            Unwrapped::Version(id, version) => Some((id, *version)),
+            _ => None,
+        }
     }
 
     fn rewrap(event: &Event, content: String, signer: &Keys) -> Event {
@@ -154,7 +256,7 @@ mod tests {
         .unwrap();
 
         let (id, event) = drive.wrap(&version).unwrap();
-        let (unwrapped_id, unwrapped) = drive.unwrap(&event).unwrap().unwrap();
+        let (unwrapped_id, unwrapped) = read(&drive, &event).unwrap();
         assert_eq!(unwrapped_id, id);
         assert_eq!(unwrapped.node_type, NodeType::File);
         assert_eq!(
@@ -197,7 +299,7 @@ mod tests {
             .unwrap();
         assert_eq!(tombstone.content.len(), dm.content.len());
 
-        let (_, unwrapped) = drive.unwrap(&tombstone).unwrap().unwrap();
+        let (_, unwrapped) = read(&drive, &tombstone).unwrap();
         let json = serde_json::to_vec(&unwrapped).unwrap();
         let mut padded = json.clone();
         padded.resize(MIN_PLAINTEXT_LEN, b' ');
@@ -208,7 +310,7 @@ mod tests {
     #[test]
     fn other_drives_ignore_it() {
         let (_, event) = DriveKeys::generate().wrap(&folder("Photos")).unwrap();
-        assert!(DriveKeys::generate().unwrap(&event).unwrap().is_none());
+        assert!(DriveKeys::generate().unwrap(&event).is_none());
     }
 
     #[test]
@@ -227,12 +329,12 @@ mod tests {
             .tag(Tag::public_key(drive.public_key()))
             .finalize(&attacker)
             .unwrap();
-        assert!(drive.unwrap(&forged).unwrap().is_none());
+        assert!(matches!(drive.unwrap(&forged), Some(Unwrapped::Junk)));
 
         let dm = PrivateDirectMessageBuilder::new(drive.public_key(), "hello")
             .finalize(&attacker)
             .unwrap();
-        assert!(drive.unwrap(&dm).unwrap().is_none());
+        assert!(matches!(drive.unwrap(&dm), Some(Unwrapped::Junk)));
     }
 
     #[test]
@@ -241,7 +343,7 @@ mod tests {
         let (_, event) = drive.wrap(&folder("Photos")).unwrap();
         let copy = rewrap(&event, event.content.clone(), &Keys::generate());
         copy.verify().unwrap();
-        assert!(drive.unwrap(&copy).unwrap().is_none());
+        assert!(matches!(drive.unwrap(&copy), Some(Unwrapped::Junk)));
     }
 
     #[test]
@@ -253,11 +355,14 @@ mod tests {
         payload[40] ^= 1;
 
         let resigned = rewrap(&event, encoding::encode(&payload), &signer);
-        assert!(drive.unwrap(&resigned).unwrap().is_none(), "NIP-44 MAC");
+        assert!(
+            matches!(drive.unwrap(&resigned), Some(Unwrapped::Junk)),
+            "NIP-44 MAC"
+        );
 
         let mut unsigned = event.clone();
         unsigned.content = encoding::encode(&payload);
-        assert!(drive.unwrap(&unsigned).unwrap().is_none(), "signature");
+        assert!(drive.unwrap(&unsigned).is_none(), "signature");
     }
 
     #[test]
@@ -281,5 +386,64 @@ mod tests {
             "{} bytes",
             event.as_json().len()
         );
+    }
+
+    #[test]
+    fn later_formats_are_kept_but_not_read() {
+        let drive = DriveKeys::generate();
+        let mut later = serde_json::to_value(folder("Photos")).unwrap();
+        later["v"] = 2.into();
+        let mut plaintext = serde_json::to_vec(&later).unwrap();
+        plaintext.resize(MIN_PLAINTEXT_LEN, b' ');
+        let signer = Keys::generate();
+        let payload = encrypt_to_bytes_with_nonce(
+            &drive.wrap_key(&signer.public_key()),
+            &plaintext,
+            random_bytes(),
+        )
+        .unwrap();
+        let event = EventBuilder::new(Kind::GiftWrap, encoding::encode(&payload))
+            .tag(Tag::public_key(drive.public_key()))
+            .finalize(&signer)
+            .unwrap();
+        assert!(matches!(
+            drive.unwrap(&event),
+            Some(Unwrapped::Unreadable(Error::UnsupportedVersion(2)))
+        ));
+    }
+
+    #[test]
+    fn deletions_name_wraps_in_batches() {
+        let drive = DriveKeys::generate();
+        let wraps: Vec<EventId> = (0..DELETION_BATCH + 1)
+            .map(|_| EventId::from_byte_array(random_bytes()))
+            .collect();
+        let deletions = drive.deletions(wraps.iter().copied()).unwrap();
+        assert_eq!(deletions.len(), 2);
+        let first = &deletions[0];
+        assert_eq!(first.kind, Kind::EventDeletion);
+        assert_eq!(first.pubkey, drive.public_key());
+        assert!(first.tags.iter().any(|t| t.as_slice() == ["k", "1059"]));
+        let named: Vec<EventId> = deletions
+            .iter()
+            .flat_map(|d| deleted_wraps(&drive.public_key(), d))
+            .collect();
+        assert_eq!(named, wraps);
+        assert!(deleted_wraps(&Keys::generate().public_key(), first).is_empty());
+    }
+
+    #[test]
+    fn lists_round_trip() {
+        let drive = DriveKeys::generate();
+        let relays = vec![RelayUrl::parse("wss://relay.example.com").unwrap()];
+        let event = drive.relay_list(relays.clone()).unwrap();
+        assert_eq!(event.kind, Kind::InboxRelays);
+        assert_eq!(read_relay_list(&event), relays);
+
+        let servers = ["https://a.example.com", "https://b.example.com"];
+        let event = drive.server_list(servers).unwrap();
+        assert_eq!(event.kind, Kind::BlossomServerList);
+        assert_eq!(read_server_list(&event), servers);
+        assert!(read_relay_list(&event).is_empty());
     }
 }

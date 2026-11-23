@@ -99,7 +99,8 @@ Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distr
 ## Sync
 
 - The set of versions is the remote truth, and the union of what every relay holds converges. The local database mirrors it: negentropy (NIP-77) reconciles sets, so a version delivered late is picked up whatever its `created_at`, and a live subscription brings new ones.
-- Version vectors tell which versions of a node are concurrent. Several heads mean concurrent edits: every device shows the same winner, an edit wins over a deletion, and any device resolves them with a version that replaces every head, differing contents becoming conflict copies.
+- A sync reconciles two sets with each drive relay: the wraps addressed to the drive and the drive's deletions, deletions first. Only ids travel until the missing events are fetched. Relays without NIP-77 are listed with paged REQs instead. Relays that follow NIP-17 serve the wraps after NIP-42 AUTH, which the drive key answers. The sync then sends each relay the wraps it lacks and the deletions of wraps it still holds, so relays converge without a server-side mirror.
+- Version vectors tell which versions of a node are concurrent. Several heads mean concurrent edits: every device shows the same winner, an edit wins over a deletion, and any device resolves them with a version that replaces every head, differing contents becoming conflict copies. Devices resolve conflicts and publish tree repairs only after a full sync, since the version that settles things may only be late.
 - Deterministic rules settle the tree, so every device shows the same one: a folder deleted while something moved into it comes back, cycles from concurrent moves are broken, and names that collide, case and Unicode normalization included, get a suffix.
 - A synced folder is a pair (local path, remote folder node), reconciled by a three-way merge of the local scan, the last synced state and the remote tree.
 - Files are snapshotted with APFS `clonefile` before upload, so editing a file during a long upload cannot produce a mixed version.
@@ -108,7 +109,7 @@ Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distr
 
 - Event kind 3540 (descriptor) is provisional, pending a published spec. It is absent from the NIPs registry and was unused on the relays checked in November 2026.
 - Relay behavior at scale: how inbox relays treat 100,000 gift wraps to one pubkey, published in bursts by throwaway keys (quotas, anti-spam, retention). To test. A drive should live on relays the user controls or pays for.
-- History window: how long superseded versions stay before compaction. The tombstone lifetime (365 days) and the blob grace period (30 days) are first guesses too.
+- History window: how long superseded versions stay before compaction. The default of 30 days, the tombstone lifetime (365 days) and the blob grace period (30 days) are first guesses.
 - Blob ownership: Blossom does not define it, so what a rotation can do about the old key's blobs depends on each server.
 - Blossom servers: which general-purpose servers to recommend or run, since media hosts refuse encrypted blobs. Range support also needs checking server by server.
 - Sharing: planned as "spaces", folders with their own key and member list, shared through NIP-59 gift wraps. A shared key lets every member write as any other, so members will sign their versions inside the payload. Not designed yet.
@@ -118,7 +119,7 @@ Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distr
 
 1. Content format and transfer pipeline, macOS skeleton (done).
 2. Blossom client: BUD-01, 02, 11, 12 and 13, mirroring to every server (done).
-3. Nostr: drive descriptor, node versions and their graph, compaction, relay sync.
+3. Nostr: drive descriptor, node versions and their graph, compaction, relay sync (done; blob collection and key rotation remain).
 4. Local database and the File Provider read path (enumerate, fetch, partial fetch).
 5. File Provider write path (create, modify, move, delete).
 6. Folder sync engine.

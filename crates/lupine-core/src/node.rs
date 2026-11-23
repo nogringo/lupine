@@ -11,9 +11,9 @@ use crate::crypto::SymmetricKey;
 use crate::encoding;
 use crate::error::{Error, Result};
 use crate::ids::{DeviceId, NodeId};
+use crate::names;
 
 pub const NODE_FORMAT_VERSION: u8 = 1;
-const MAX_NAME_BYTES: usize = 255;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -42,6 +42,25 @@ impl Stamp {
             seq: previous_seq.saturating_add(1).max(unix_millis() as u64),
             epoch,
         }
+    }
+}
+
+/// Numbers the versions one device writes. The caller persists `last`.
+#[derive(Clone, Copy, Debug)]
+pub struct DeviceClock {
+    pub device: DeviceId,
+    pub last: u64,
+}
+
+impl DeviceClock {
+    pub fn new(device: DeviceId) -> Self {
+        Self { device, last: 0 }
+    }
+
+    pub fn stamp(&mut self, epoch: u32) -> Stamp {
+        let stamp = Stamp::next(self.device, self.last, epoch);
+        self.last = stamp.seq;
+        stamp
     }
 }
 
@@ -85,6 +104,14 @@ impl FileMeta {
         FileKey::from_root(self.key.clone())
     }
 }
+
+impl PartialEq for FileMeta {
+    fn eq(&self, other: &Self) -> bool {
+        self.key.as_bytes() == other.key.as_bytes() && self.content == other.content
+    }
+}
+
+impl Eq for FileMeta {}
 
 impl NodeVersion {
     pub fn folder(stamp: Stamp, node: NodeId, parent: Option<NodeId>, name: &str) -> Self {
@@ -147,6 +174,16 @@ impl NodeVersion {
         }
     }
 
+    /// The same state written again under `stamp`, replacing `heads`.
+    pub fn rewritten(&self, stamp: Stamp, heads: &[&NodeVersion]) -> Result<Self> {
+        let mut version = self.clone();
+        version.epoch = stamp.epoch;
+        version.time = unix_millis();
+        version.device = stamp.device;
+        version.vv = BTreeMap::from([(stamp.device, stamp.seq)]);
+        version.replacing(heads)
+    }
+
     /// Merges the vectors of `heads` into this version's.
     pub fn replacing(mut self, heads: &[&NodeVersion]) -> Result<Self> {
         let seq = self.seq();
@@ -179,6 +216,22 @@ impl NodeVersion {
         self.node == other.node && saw(self, other) && !saw(other, self)
     }
 
+    /// Equal but for who wrote it and when: replacing one with the other
+    /// changes nothing.
+    pub fn same_state(&self, other: &NodeVersion) -> bool {
+        self.node == other.node
+            && self.node_type == other.node_type
+            && self.parent == other.parent
+            && self.name == other.name
+            && self.created == other.created
+            && self.modified == other.modified
+            && self.file == other.file
+    }
+
+    pub fn is_tombstone(&self) -> bool {
+        self.node_type == NodeType::Deleted
+    }
+
     /// Writers normalize names, readers too, in case another writer did not.
     pub(crate) fn normalize(&mut self) {
         self.name = self.name.nfc().collect();
@@ -198,32 +251,11 @@ impl NodeVersion {
             }
             _ => {}
         }
-        validate_name(&self.name)
+        names::validate(&self.name)
     }
 }
 
-/// Versions of a node that no other version dominates.
-pub fn heads(versions: &[NodeVersion]) -> Vec<&NodeVersion> {
-    versions
-        .iter()
-        .filter(|v| !versions.iter().any(|w| w.dominates(v)))
-        .collect()
-}
-
-/// Names come from the network and end up as path components on disk.
-fn validate_name(name: &str) -> Result<()> {
-    let invalid = name.is_empty()
-        || name.len() > MAX_NAME_BYTES
-        || name == "."
-        || name == ".."
-        || name.contains(['/', '\0']);
-    if invalid {
-        return Err(Error::Malformed("invalid node name"));
-    }
-    Ok(())
-}
-
-fn unix_millis() -> i64 {
+pub(crate) fn unix_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
@@ -329,41 +361,5 @@ mod tests {
         );
         let other = NodeVersion::folder(stamp(a, 12), NodeId::random(), None, "C");
         assert!(other.replacing(&[&first]).is_err());
-    }
-
-    #[test]
-    fn compacted_versions_that_come_back_stay_superseded() {
-        let (a, b, c) = (DeviceId::random(), DeviceId::random(), DeviceId::random());
-        let node = NodeId::random();
-        let v1 = NodeVersion::folder(stamp(a, 1), node, None, "One");
-        let v2 = NodeVersion::folder(stamp(b, 2), node, None, "Two")
-            .replacing(&[&v1])
-            .unwrap();
-        let v3 = NodeVersion::folder(stamp(a, 3), node, None, "Three")
-            .replacing(&[&v2])
-            .unwrap();
-
-        let after_compaction = [v3.clone(), v1.clone()];
-        let current = heads(&after_compaction);
-        assert_eq!(current.len(), 1);
-        assert_eq!(current[0].name, "Three");
-        assert!(v3.dominates(&v2) && v3.dominates(&v1));
-
-        // An edit made offline from v1 is concurrent, not a replay.
-        let offline = NodeVersion::folder(stamp(c, 4), node, None, "Offline")
-            .replacing(&[&v1])
-            .unwrap();
-        let with_offline = [v3.clone(), offline];
-        assert_eq!(heads(&with_offline).len(), 2);
-    }
-
-    #[test]
-    fn a_reused_device_id_keeps_both_versions() {
-        let a = DeviceId::random();
-        let node = NodeId::random();
-        let clone_one = NodeVersion::folder(stamp(a, 5), node, None, "One");
-        let clone_two = NodeVersion::folder(stamp(a, 5), node, None, "Two");
-        assert!(!clone_one.dominates(&clone_two) && !clone_two.dominates(&clone_one));
-        assert_eq!(heads(&[clone_one, clone_two]).len(), 2);
     }
 }

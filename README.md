@@ -2,12 +2,12 @@
 
 End-to-end encrypted drive on Nostr and Blossom. Native apps backed by a shared Rust core; macOS comes first.
 
-Early development: the content format, the Blossom client and the macOS skeleton exist, the Nostr layer does not yet. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
+Early development: the content format, the Blossom client, the Nostr layer and the macOS skeleton exist. The local database and the File Provider integration do not yet. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
 
 ## Layout
 
 ```
-crates/lupine-core   formats, crypto, chunked transfers
+crates/lupine-core   formats, crypto, transfers, Blossom and Nostr clients
 crates/lupine-ffi    UniFFI bindings for Swift and Kotlin
 tools/uniffi-bindgen binding generator
 apple/               macOS app and File Provider extension

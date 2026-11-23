@@ -1,6 +1,6 @@
 # Lupine protocol, v1 (draft)
 
-Event kind 3540 is provisional. `crates/lupine-core` implements the formats (keys, versions, wraps and file content) and the Blossom client. The rules for conflicts, the tree, compaction, blob collection and key rotation are not implemented yet.
+Event kind 3540 is provisional. `crates/lupine-core` implements everything below except blob collection and key rotation.
 
 ## Conventions
 
@@ -159,7 +159,7 @@ Exactly one of `chunks` and `table` is present.
 - One head: it is the state of the node.
 - Several heads: concurrent edits. The winning head is the most recent live head (greatest `time`, then lowest version id), or the most recent tombstone when every head is one. Every client shows the winner, so all devices agree, and an edit wins over a concurrent deletion.
 - Heads that differ only in `epoch`, `time`, `device` and `vv` are not a conflict: the next version replaces them all.
-- Otherwise a client resolves the conflict with a version that replaces every head and keeps the winner's state. Each live head whose `file` differs from the winner's becomes a conflict copy, a new file next to the winner:
+- Otherwise a client resolves the conflict, after a full sync of every drive relay, with a version that replaces every head and keeps the winner's state. Each live head whose `file` differs from the winner's becomes a conflict copy, a new file next to the winner:
   - node id: the first 16 bytes of `SHA-256("lupine/v1/conflict" || version id)`, with the id of that head;
   - `name`: the head's name with ` (conflict YYYY-MM-DD)` before its extension, the date of the head's `time` in UTC;
   - `parent`: the winner's; `file`: the head's.
@@ -170,14 +170,14 @@ Two devices that resolve the same conflict create the same copies, and their ver
 
 A node's parent and name are those of its winning head. Clients then apply these rules, in order, so they all show the same tree:
 
-1. Deleted parents. A live node whose parent's winning head is a tombstone revives that parent, with the name and parent its tombstone kept, and so on up the tree. An edit or a move into a folder deleted at the same time thus wins over the deletion.
+1. Deleted parents. A live node whose parent's winning head is a tombstone revives that parent as a folder, with the name and parent its tombstone kept, and so on up the tree. An edit or a move into a folder deleted at the same time thus wins over the deletion.
 2. Missing parents. A node whose parent is unknown, or is not a folder, waits: the parent may only be late. Once the client has synced every drive relay, it shows the node at the drive root.
 3. Cycles. When parents form a loop, the node of the loop whose winning head is the most recent (greatest `time`, then lowest version id) goes to the drive root.
 4. Names. Two live nodes of a folder collide when their names are equal after NFC normalization and Unicode default case folding, so that case-insensitive file systems can hold the tree. The node with the lowest id keeps its name. The others, in order of node id, take the first free name among `<stem> (2)<ext>`, `<stem> (3)<ext>` and so on.
 
-The extension of a name starts at its last `.`, unless that `.` is the first character. When a suffix makes a name longer than 255 bytes, the stem is cut at a character boundary.
+The extension of a name starts at its last `.`, unless that `.` is the first character. When a suffix makes a name longer than 255 bytes, the stem is cut at a character boundary. An extension too long to leave room for the suffix counts as part of the stem.
 
-Rules 1, 3 and 4 show a state that no version holds. After a full sync of every drive relay, the first client that applies one publishes it: a folder version that dominates the tombstone, a move to the root, a rename. Clients that publish the same repair at the same time produce versions that differ only in `time`, `device` and `vv`.
+Rules 1, 3 and 4 show a state that no version holds. After a full sync of every drive relay, the first client that applies one publishes it: a folder version that dominates the tombstone, a move to the root, a rename. Clients that publish the same repair at the same time produce versions that differ only in `time`, `device` and `vv`. Nodes that rule 2 shows at the root are not repaired: their parent may still arrive, so they keep their parent and name. A node that needs a repair and a conflict resolution gets one version that does both.
 
 Deleting a folder publishes a tombstone for every node under it, deepest first, and the folder's own last, so a deletion cut short never revives a folder.
 
@@ -199,7 +199,7 @@ A device that comes back within the tombstone lifetime learns about every deleti
 - Clients ignore every wrap that a drive deletion names.
 - A client looks for a drive deletion, with `{"kinds": [5], "authors": [<drive pubkey>], "#e": [<wrap ids>]}`, before it trusts a wrap that some drive relays lack, or a version older than the tombstone lifetime of a node it does not know. Without this, a relay that missed a deletion could bring back a node deleted more than a year ago. For the nodes a client knows, version vectors already set old versions aside.
 - When drive relays disagree on a wrap, the client sends the deletion that names it to the relays that still hold it, or, when there is none, the wrap to the relays that lack it.
-- Anyone can send gift wraps to the drive pubkey, which is public. The drive deletes the ones that fail to decrypt like its own wraps, and clients skip their ids until the relays have deleted them.
+- Anyone can send gift wraps to the drive pubkey, which is public. The drive deletes the ones that fail to decrypt like its own wraps, and clients skip their ids until the relays have deleted them. A wrap that decrypts but holds a version the client cannot read, such as a later format, is kept and ignored.
 
 ## File content
 

@@ -8,14 +8,17 @@ repository.workspace = true
 
 [dependencies]
 base64.workspace = true
+bech32.workspace = true
 bytes.workspace = true
 chacha20poly1305.workspace = true
+focaccia.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
 nostr.workspace = true
+nostr-sdk.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -28,5 +31,8 @@ zeroize.workspace = true
 [dev-dependencies]
 axum.workspace = true
 nostr = { workspace = true, features = ["nip59"] }
+nostr-database.workspace = true
+nostr-memory.workspace = true
+nostr-sdk = { workspace = true, features = ["local-relay"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }

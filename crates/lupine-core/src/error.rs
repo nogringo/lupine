@@ -27,6 +27,11 @@ pub enum Error {
     SourceChanged,
     #[error("nostr: {0}")]
     Nostr(String),
+    #[error("{relay}: {message}")]
+    Relay { relay: String, message: String },
+    /// No drive relay accepted the event.
+    #[error("no relay accepted the event: {0}")]
+    NotPublished(String),
     #[error("invalid chunk size {0}")]
     InvalidChunkSize(u32),
     #[error(transparent)]
@@ -40,7 +45,7 @@ impl Error {
     /// server is overloaded or down.
     pub fn is_transient(&self) -> bool {
         match self {
-            Self::Network { .. } => true,
+            Self::Network { .. } | Self::Relay { .. } | Self::NotPublished(_) => true,
             Self::Http { status, .. } => matches!(status, 408 | 429 | 500 | 502 | 503 | 504),
             _ => false,
         }
