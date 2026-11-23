@@ -82,7 +82,11 @@ Server size limits are not a constraint. Probed in November 2026 with `HEAD /upl
 
 Server policies are one. nostr.build, blossom.band and nostrcheck only host media and refuse `application/octet-stream`, so they cannot store encrypted chunks. A drive needs servers that store arbitrary blobs: nostr.download accepted them, and a self-hosted blossom-server does.
 
-One BUD-11 token can carry many `x` tags, so a token authorizes a batch of chunks. HTTP header size caps a batch at a few dozen hashes.
+The device uploads each chunk once, to the first server of the drive's list. Servers that implement BUD-13 mirroring (`POST /<sha256>`) then fetch it from there, and the others get their own upload. In November 2026 few servers mirror: nostr.download accepted BUD-13 uploads but did not advertise mirroring, and the reference blossom-server implemented neither, so most servers still cost the device one upload each.
+
+The client signs one BUD-11 token per request, scoped to one server and one blob: the drive key signs locally in microseconds, and a leaked token can only repeat that request. A token may carry many `x` tags to authorize a batch, but HTTP header size caps a batch at a few dozen hashes.
+
+Reads go to the servers in order and move on when one fails, lacks the blob or serves a whole blob that does not match its hash.
 
 ## Processes on macOS
 
@@ -113,7 +117,7 @@ Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distr
 ## Roadmap
 
 1. Content format and transfer pipeline, macOS skeleton (done).
-2. Blossom client: BUD-01, 02, 11, 12 and 13, mirroring to every server.
+2. Blossom client: BUD-01, 02, 11, 12 and 13, mirroring to every server (done).
 3. Nostr: drive descriptor, node versions and their graph, compaction, relay sync.
 4. Local database and the File Provider read path (enumerate, fetch, partial fetch).
 5. File Provider write path (create, modify, move, delete).

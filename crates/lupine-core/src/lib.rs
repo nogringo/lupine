@@ -2,6 +2,7 @@
 //! platform. See `docs/protocol.md` for the wire formats implemented here.
 
 pub mod blob;
+pub mod blossom;
 pub mod content;
 pub mod crypto;
 pub mod drive;
@@ -10,6 +11,7 @@ pub mod error;
 pub mod ids;
 pub mod io;
 pub mod node;
+mod task;
 
 pub use error::{Error, Result};
 

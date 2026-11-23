@@ -22,6 +22,10 @@ impl BlobStore for DiscardStore {
     async fn get(&self, hash: Sha256Hash) -> Result<Bytes> {
         Err(Error::BlobNotFound(hash))
     }
+
+    async fn delete(&self, _: Sha256Hash) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[tokio::main]

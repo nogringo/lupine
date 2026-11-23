@@ -2,7 +2,7 @@
 
 End-to-end encrypted drive on Nostr and Blossom. Native apps backed by a shared Rust core; macOS comes first.
 
-Early development: the content format and the macOS skeleton exist, the network layer does not yet. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
+Early development: the content format, the Blossom client and the macOS skeleton exist, the Nostr layer does not yet. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
 
 ## Layout
 

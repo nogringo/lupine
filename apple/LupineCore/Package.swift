@@ -12,7 +12,9 @@ let package = Package(
         .target(
             name: "LupineCore",
             dependencies: ["LupineFFI"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            // The Rust library verifies TLS with the system trust store and reads the system proxy settings.
+            linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration")]
         ),
     ]
 )

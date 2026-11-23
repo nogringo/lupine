@@ -1,5 +1,6 @@
-//! Content-addressed blob storage. Blossom implements it over HTTP; the
-//! memory and directory stores serve tests and offline development.
+//! Content-addressed blob storage. `blossom::BlossomStore` implements it
+//! over HTTP; the memory and directory stores serve tests and offline
+//! development.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -32,9 +33,12 @@ pub trait BlobStore: Send + Sync {
     ) -> impl Future<Output = Result<Bytes>> + Send {
         async move { slice(self.get(hash).await?, range) }
     }
+
+    /// Succeeds when the blob is already absent.
+    fn delete(&self, hash: Sha256Hash) -> impl Future<Output = Result<()>> + Send;
 }
 
-fn slice(blob: Bytes, range: Range<u64>) -> Result<Bytes> {
+pub(crate) fn slice(blob: Bytes, range: Range<u64>) -> Result<Bytes> {
     if range.start > range.end || range.end > blob.len() as u64 {
         return Err(Error::Malformed("range outside the blob"));
     }
@@ -106,6 +110,11 @@ impl BlobStore for MemoryBlobStore {
         let blob = blob.ok_or(Error::BlobNotFound(hash))?;
         slice(blob, range).map(|part| self.serve(part))
     }
+
+    async fn delete(&self, hash: Sha256Hash) -> Result<()> {
+        self.lock().remove(&hash);
+        Ok(())
+    }
 }
 
 /// One file per blob, named by its hash.
@@ -168,5 +177,12 @@ impl BlobStore for DirBlobStore {
             .await
             .map_err(|_| Error::Malformed("range outside the blob"))?;
         Ok(data.into())
+    }
+
+    async fn delete(&self, hash: Sha256Hash) -> Result<()> {
+        match tokio::fs::remove_file(self.path(&hash)).await {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        }
     }
 }

@@ -1,6 +1,6 @@
 # Lupine protocol, v1 (draft)
 
-Event kind 3540 is provisional. `crates/lupine-core` implements the formats: keys, versions, wraps and file content. The rules for conflicts, the tree, compaction, blob collection and key rotation are not implemented yet.
+Event kind 3540 is provisional. `crates/lupine-core` implements the formats (keys, versions, wraps and file content) and the Blossom client. The rules for conflicts, the tree, compaction, blob collection and key rotation are not implemented yet.
 
 ## Conventions
 
@@ -233,10 +233,12 @@ Encryption is deterministic: the same plaintext at the same position gives the s
 
 ## Blossom
 
-- Upload with `PUT /<sha256>` (BUD-13), falling back to `PUT /upload` (BUD-02), with `Content-Type: application/octet-stream`. Servers that only host media refuse this type, so a drive needs servers that store arbitrary blobs.
+- Upload with `PUT /<sha256>` (BUD-13), falling back to `PUT /upload` (BUD-02) when `OPTIONS /<sha256>` does not advertise `PUT` (BUD-01 feature discovery), with `Content-Type: application/octet-stream`. Servers that only host media refuse this type, so a drive needs servers that store arbitrary blobs.
+- A server that advertises `POST /<sha256>` (BUD-13) may get a blob by mirroring it from another drive server rather than by an upload. Either way the client checks the blob descriptor's `sha256`.
 - A client uploads every blob of a version to every server before publishing it. Right before publishing, it checks with `HEAD /<sha256>` (BUD-01) that each blob the version references is still on every server, and uploads the missing ones: another device may have collected a blob that this version reuses.
 - Partial reads use `GET /<sha256>` with a `Range` header (BUD-01). When a server ignores `Range` and returns the whole blob, the client keeps the part it needs.
-- Authorization (BUD-11): kind 24242 signed by the drive key, with a `server` tag and a short expiration. An upload token may carry several `x` tags.
+- Authorization (BUD-11): kind 24242 signed by the drive key, with a `t` tag, the `x` tag of the blob, a `server` tag holding the server's host name, and a short expiration. Uploads, mirrors and deletions always carry a token; reads carry one once a server answers `401`. An upload token may carry several `x` tags.
+- Deletion is `DELETE /<sha256>` (BUD-12). A `404` counts as deleted.
 - A client deletes a blob (BUD-12) once it has seen no version on any drive relay reference it for 30 days, and checks again, after a full sync, right before deleting it. A blob that no version ever referenced, from an upload whose version was never published, is deleted by the device that uploaded it, 30 days after the upload.
 
 ## What servers learn
