@@ -20,7 +20,8 @@ use nostr_sdk::local_relay::{LocalRelay, LocalRelayBuilder};
 use super::*;
 use crate::account::Account;
 use crate::content::{ContentDescriptor, FileKey};
-use crate::ids::DeviceId;
+use crate::ids::DriveId;
+use crate::store::{DriveRecord, Store};
 
 type Boxed<'a, T> = Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
 
@@ -153,11 +154,27 @@ impl TestRelay {
     }
 }
 
-async fn device(drive: &DriveKeys, relays: &[&TestRelay]) -> DriveSession {
+fn store(drive: &DriveKeys, relays: &[&TestRelay]) -> Arc<Store> {
+    let store = Store::memory().unwrap();
+    store
+        .set_drive(&DriveRecord {
+            id: DriveId([7; 16]),
+            pubkey: drive.public_key(),
+            epoch: 0,
+            relays: relays.iter().map(|r| r.url.clone()).collect(),
+            servers: Vec::new(),
+        })
+        .unwrap();
+    Arc::new(store)
+}
+
+async fn open(drive: &DriveKeys, store: &Arc<Store>) -> DriveSession {
     let keys = DriveKeys::from_secret(drive.keys().secret_key().clone());
-    let urls = relays.iter().map(|r| r.url.clone());
-    let clock = DeviceClock::new(DeviceId::random());
-    DriveSession::open(keys, 0, clock, urls).await.unwrap()
+    DriveSession::open(Arc::clone(store), keys).await.unwrap()
+}
+
+async fn device(drive: &DriveKeys, relays: &[&TestRelay]) -> DriveSession {
+    open(drive, &store(drive, relays)).await
 }
 
 fn content(byte: u8) -> ContentDescriptor {
@@ -202,7 +219,13 @@ async fn a_second_device_sees_what_the_first_wrote() {
         published.sent.reasons()
     );
     first
-        .create_file(Some(photos), "beach.jpg", &FileKey::generate(), content(1))
+        .create_file(
+            Some(photos),
+            "beach.jpg",
+            &FileKey::generate(),
+            content(1),
+            None,
+        )
         .await
         .unwrap();
 
@@ -288,7 +311,7 @@ async fn concurrent_edits_settle_into_a_winner_and_a_copy() {
     let drive = DriveKeys::generate();
     let mut first = device(&drive, &[&a]).await;
     let (node, _) = first
-        .create_file(None, "notes.txt", &FileKey::generate(), content(1))
+        .create_file(None, "notes.txt", &FileKey::generate(), content(1), None)
         .await
         .unwrap();
     let mut second = device(&drive, &[&a]).await;
@@ -355,7 +378,13 @@ async fn deleting_a_folder_deletes_what_it_holds() {
     let (photos, _) = first.create_folder(None, "Photos").await.unwrap();
     let (trip, _) = first.create_folder(Some(photos), "Trip").await.unwrap();
     first
-        .create_file(Some(trip), "beach.jpg", &FileKey::generate(), content(1))
+        .create_file(
+            Some(trip),
+            "beach.jpg",
+            &FileKey::generate(),
+            content(1),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(first.delete(photos).await.unwrap(), 3);
@@ -375,7 +404,7 @@ async fn a_move_into_a_deleted_folder_brings_it_back() {
     let mut first = device(&drive, &[&a]).await;
     let (archive, _) = first.create_folder(None, "Archive").await.unwrap();
     let (report, _) = first
-        .create_file(None, "report.pdf", &FileKey::generate(), content(1))
+        .create_file(None, "report.pdf", &FileKey::generate(), content(1), None)
         .await
         .unwrap();
     let mut second = device(&drive, &[&a]).await;
@@ -409,7 +438,7 @@ async fn new_versions_arrive_live() {
         .await
         .expect("the wrap arrives")
         .unwrap();
-    assert_eq!(watcher.receive(&event), BTreeSet::from([node]));
+    assert_eq!(watcher.receive(&[event]).unwrap(), BTreeSet::from([node]));
     assert_eq!(listing(&watcher), ["Live"]);
 }
 
@@ -484,4 +513,124 @@ async fn relays_serve_the_wraps_only_to_the_drive() {
     assert!(compared.is_err(), "{compared:?}");
     assert_eq!(synced(&mut owner).await.received, 0);
     assert_eq!(listing(&owner), ["Private"]);
+}
+
+#[tokio::test]
+async fn a_device_reopens_its_drive_from_the_local_database() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let mut writer = device(&drive, &[&a]).await;
+    let (photos, _) = writer.create_folder(None, "Photos").await.unwrap();
+    let (draft, _) = writer.create_folder(Some(photos), "Draft").await.unwrap();
+    writer.delete(draft).await.unwrap();
+
+    let local = store(&drive, &[&a]);
+    let mut reader = open(&drive, &local).await;
+    synced(&mut reader).await;
+    let before = listing(&reader);
+    let clock = reader.clock();
+    reader.shutdown().await;
+
+    let mut reopened = open(&drive, &local).await;
+    assert_eq!(listing(&reopened), before, "without syncing");
+    assert_eq!(reopened.clock().device, clock.device);
+    assert_eq!(reopened.replica().node_ids().count(), 2, "tombstones too");
+    let report = synced(&mut reopened).await;
+    assert_eq!((report.received, report.repaired), (0, 0));
+}
+
+#[tokio::test]
+async fn the_change_log_follows_the_tree() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let mut writer = device(&drive, &[&a]).await;
+    let (photos, _) = writer.create_folder(None, "Photos").await.unwrap();
+    let (beach, _) = writer
+        .create_file(
+            Some(photos),
+            "beach.jpg",
+            &FileKey::generate(),
+            content(1),
+            Some(5),
+        )
+        .await
+        .unwrap();
+
+    let local = store(&drive, &[&a]);
+    let empty = local.anchor().unwrap();
+    let mut reader = open(&drive, &local).await;
+    synced(&mut reader).await;
+
+    let changes = local.changes(&empty.to_bytes(), 100).unwrap();
+    let updated: Vec<_> = changes.updated.iter().map(|i| i.node).collect();
+    assert_eq!(updated, [photos, beach], "parents first");
+    assert!(!changes.more);
+    let item = local.item(&beach).unwrap().unwrap();
+    assert_eq!(
+        (item.parent, item.size(), item.modified),
+        (Some(photos), 1, Some(5))
+    );
+    assert_eq!(local.children(None, None, 10).unwrap().len(), 1);
+    assert_eq!(
+        local.children(Some(photos), None, 10).unwrap()[0].node,
+        beach
+    );
+
+    let first = local.changes(&empty.to_bytes(), 1).unwrap();
+    assert!(first.more);
+    let rest = local.changes(&first.anchor.to_bytes(), 1).unwrap();
+    assert_eq!(rest.updated[0].node, beach);
+    assert_eq!(rest.anchor, changes.anchor);
+
+    let seen = changes.anchor;
+    writer.move_to(beach, None, "beach.jpg").await.unwrap();
+    writer.delete(photos).await.unwrap();
+    synced(&mut reader).await;
+    let moved = local.changes(&seen.to_bytes(), 100).unwrap();
+    assert_eq!(moved.updated.len(), 1);
+    assert_eq!(moved.updated[0].parent, None);
+    assert_eq!(moved.removed, [photos]);
+    assert!(local.item(&photos).unwrap().is_none());
+
+    let elsewhere = store(&drive, &[&a]);
+    assert!(matches!(
+        local.changes(&elsewhere.anchor().unwrap().to_bytes(), 10),
+        Err(Error::AnchorExpired)
+    ));
+    assert!(matches!(local.changes(b"", 10), Err(Error::AnchorExpired)));
+}
+
+#[tokio::test]
+async fn following_reports_changes_until_stopped() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let local = store(&drive, &[&a]);
+    let mut follower = open(&drive, &local).await;
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let (seen, mut changes) = tokio::sync::mpsc::unbounded_channel();
+
+    let following = tokio::spawn(async move {
+        follower
+            .follow(
+                async {
+                    stopped.await.ok();
+                },
+                |event| {
+                    if matches!(event, Followed::ItemsChanged) {
+                        seen.send(()).unwrap();
+                    }
+                },
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut writer = device(&drive, &[&a]).await;
+    let (node, _) = writer.create_folder(None, "Live").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), changes.recv())
+        .await
+        .expect("the change is reported");
+    assert_eq!(local.item(&node).unwrap().unwrap().name, "Live");
+
+    stop.send(()).unwrap();
+    following.await.unwrap().unwrap();
 }

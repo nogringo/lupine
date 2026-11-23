@@ -10,14 +10,17 @@ pub mod descriptor;
 pub mod drive;
 mod encoding;
 pub mod error;
+pub mod fetch;
 pub mod graph;
 pub mod ids;
 pub mod io;
+pub mod items;
 pub mod names;
 pub mod node;
 pub mod relays;
 pub mod replica;
 pub mod session;
+pub mod store;
 mod task;
 pub mod tree;
 

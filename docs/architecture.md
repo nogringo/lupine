@@ -93,6 +93,7 @@ Reads go to the servers in order and move on when one fails, lacks the blob or s
 - `Lupine.app`, a menu bar agent started at login. It keeps the relay subscriptions, runs folder sync and signals the File Provider enumerators when the remote tree changes. The extension cannot do this itself: the system stops it when idle, and Nostr has no push.
 - `LupineFileProvider.appex` serves Finder: enumerates from the local database, fetches (partial) contents from Blossom, uploads new and modified files.
 - Both share an SQLite database in the App Group container (`936HBZB935.ovh.uid.lupine`) and keys in a shared keychain group.
+- The extension fetches content into the system's temporary directory. A partial fetch writes the requested range, widened to whole 64 KiB segments and to the system's alignment, at its offsets in a sparse file of the full size.
 
 Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distribution through Developer ID or the Mac App Store both stay possible.
 
@@ -104,6 +105,16 @@ Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distr
 - Deterministic rules settle the tree, so every device shows the same one: a folder deleted while something moved into it comes back, cycles from concurrent moves are broken, and names that collide, case and Unicode normalization included, get a suffix.
 - A synced folder is a pair (local path, remote folder node), reconciled by a three-way merge of the local scan, the last synced state and the remote tree.
 - Files are snapshotted with APFS `clonefile` before upload, so editing a file during a long upload cannot produce a mixed version.
+
+## Local database
+
+Each drive has its own SQLite database, in WAL mode: the app writes it, the File Provider extension reads it.
+
+- It holds what the device knows of the drive: every wrap and deletion seen, the versions they carry, and the events relays may still need. A launch restores the replica from it without decrypting or verifying anything again, and the next sync downloads only what is new.
+- It also holds the tree as Finder shows it, one row per item. Each change to an item takes the next number of a counter, which is the File Provider sync anchor. Anchors carry a random id of the database, so an anchor from a deleted and recreated database expires instead of skipping changes. Items that leave the tree stay as removed rows, so a change enumeration reports them.
+- The app writes it after every step (a sync, a batch of live events, a publication) and signals the working set when items changed. The working set is the whole drive, since the extension does not track which folders are materialized yet.
+- It holds decrypted metadata, file keys included, like the files a device downloads. The drive secret stays in the keychain.
+- It holds the device id, one per drive on each install, so it is excluded from backups: a restored copy would reuse that id. Losing the database costs a full sync, nothing else.
 
 ## Open questions
 

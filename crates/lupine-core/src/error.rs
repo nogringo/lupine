@@ -34,6 +34,11 @@ pub enum Error {
     NotPublished(String),
     #[error("invalid chunk size {0}")]
     InvalidChunkSize(u32),
+    /// The file system integration should enumerate everything again.
+    #[error("sync anchor expired")]
+    AnchorExpired,
+    #[error("local database: {0}")]
+    Database(#[from] rusqlite::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

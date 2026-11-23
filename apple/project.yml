@@ -11,6 +11,7 @@ settings:
     DEVELOPMENT_TEAM: 936HBZB935
     CODE_SIGN_STYLE: Automatic
     APP_GROUP_ID: $(DEVELOPMENT_TEAM).ovh.uid.lupine
+    KEYCHAIN_GROUP_ID: $(DEVELOPMENT_TEAM).ovh.uid.lupine
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -26,7 +27,7 @@ targets:
   Lupine:
     type: application
     platform: macOS
-    sources: [Lupine]
+    sources: [Lupine, Shared]
     dependencies:
       - package: LupineCore
       - target: LupineFileProvider
@@ -39,12 +40,15 @@ targets:
         CFBundleDisplayName: Lupine
         LSApplicationCategoryType: public.app-category.productivity
         LSUIElement: true
+        LupineAppGroup: $(APP_GROUP_ID)
+        LupineKeychainGroup: $(KEYCHAIN_GROUP_ID)
     entitlements:
       path: Lupine/Lupine.entitlements
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         com.apple.security.application-groups: [$(APP_GROUP_ID)]
+        keychain-access-groups: [$(KEYCHAIN_GROUP_ID)]
         # Folder sync: folders picked by the user, remembered across launches.
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.bookmarks.app-scope: true
@@ -52,7 +56,7 @@ targets:
   LupineFileProvider:
     type: app-extension
     platform: macOS
-    sources: [LupineFileProvider]
+    sources: [LupineFileProvider, Shared]
     dependencies:
       - package: LupineCore
     settings:
@@ -62,6 +66,8 @@ targets:
       path: LupineFileProvider/Info.plist
       properties:
         CFBundleDisplayName: Lupine
+        LupineAppGroup: $(APP_GROUP_ID)
+        LupineKeychainGroup: $(KEYCHAIN_GROUP_ID)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.fileprovider-nonui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
@@ -73,3 +79,4 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         com.apple.security.application-groups: [$(APP_GROUP_ID)]
+        keychain-access-groups: [$(KEYCHAIN_GROUP_ID)]

@@ -1,8 +1,10 @@
 //! What this device knows of the drive's events: every gift wrap addressed
 //! to the drive and every drive deletion, the versions the wraps carry, and
-//! from those the tree, compaction and the repairs relays need. Kept in
-//! memory for now; the local database will hold the same records.
+//! from those the tree, compaction and the repairs relays need. Indexes are
+//! kept in memory; every change is journaled for the local database, which
+//! also keeps the events relays may need.
 
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::Duration;
 
@@ -38,20 +40,66 @@ impl Default for Retention {
     }
 }
 
-struct Wrap {
-    created_at: Timestamp,
-    content: WrapContent,
-}
-
-enum WrapContent {
-    Version {
-        id: VersionId,
-        event: Event,
-    },
-    Unreadable(Event),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WrapState {
+    Version(VersionId),
+    /// Decrypts with the drive keys but holds no version this client reads.
+    Unreadable,
     Junk,
     /// Named by a drive deletion.
     Deleted,
+}
+
+impl WrapState {
+    /// Relays that lack the wrap should get it.
+    pub fn is_kept(&self) -> bool {
+        matches!(self, Self::Version(_) | Self::Unreadable)
+    }
+}
+
+struct Wrap {
+    created_at: Timestamp,
+    state: WrapState,
+}
+
+/// A change to what the replica holds, for the local database.
+#[derive(Clone, Debug)]
+pub enum Record {
+    /// A wrap seen for the first time, or a known one now deleted. `event`
+    /// comes with the wraps that relays lacking them should get.
+    Wrap {
+        id: EventId,
+        created_at: Timestamp,
+        state: WrapState,
+        event: Option<Event>,
+    },
+    Version {
+        id: VersionId,
+        version: NodeVersion,
+    },
+    /// Its last wrap was deleted.
+    VersionGone(VersionId),
+    Deletion(Event),
+    Deleted {
+        wrap: EventId,
+        by: EventId,
+    },
+}
+
+impl Record {
+    pub fn changes_versions(&self) -> bool {
+        matches!(self, Self::Version { .. } | Self::VersionGone(_))
+    }
+}
+
+/// What the local database holds, to rebuild a replica from.
+#[derive(Default)]
+pub struct Snapshot {
+    pub wraps: Vec<(EventId, Timestamp, WrapState)>,
+    pub versions: Vec<(VersionId, NodeVersion)>,
+    pub deletions: Vec<(EventId, Timestamp)>,
+    /// Each deleted wrap, and the first deletion seen naming it.
+    pub deleted: Vec<(EventId, EventId)>,
 }
 
 /// What a full sync learned of the wraps it compared: which relays hold
@@ -69,9 +117,10 @@ pub struct Replica {
     /// Wraps carrying each version, deleted ones excluded.
     carriers: HashMap<VersionId, BTreeSet<EventId>>,
     nodes: HashMap<NodeId, BTreeSet<VersionId>>,
-    deletions: HashMap<EventId, Event>,
+    deletions: HashMap<EventId, Timestamp>,
     /// Each deleted wrap, and the first deletion seen naming it.
     deleted_by: HashMap<EventId, EventId>,
+    journal: Vec<Record>,
 }
 
 impl Replica {
@@ -84,7 +133,34 @@ impl Replica {
             nodes: HashMap::new(),
             deletions: HashMap::new(),
             deleted_by: HashMap::new(),
+            journal: Vec::new(),
         }
+    }
+
+    /// Without decrypting or verifying anything again.
+    pub fn restore(drive: PublicKey, snapshot: Snapshot) -> Self {
+        let mut replica = Self::new(drive);
+        replica.versions = snapshot.versions.into_iter().collect();
+        for (id, created_at, state) in snapshot.wraps {
+            if let WrapState::Version(version) = state
+                && let Some(node) = replica.versions.get(&version).map(|v| v.node)
+            {
+                replica.carriers.entry(version).or_default().insert(id);
+                replica.nodes.entry(node).or_default().insert(version);
+            }
+            replica.wraps.insert(id, Wrap { created_at, state });
+        }
+        replica
+            .versions
+            .retain(|id, _| replica.carriers.contains_key(id));
+        replica.deletions = snapshot.deletions.into_iter().collect();
+        replica.deleted_by = snapshot.deleted.into_iter().collect();
+        replica
+    }
+
+    /// The changes since the last call, oldest first.
+    pub fn take_journal(&mut self) -> Vec<Record> {
+        std::mem::take(&mut self.journal)
     }
 
     /// Takes a wrap or a drive deletion, from a relay or from this device.
@@ -102,10 +178,14 @@ impl Replica {
         if named.is_empty() || self.deletions.contains_key(&event.id) {
             return BTreeSet::new();
         }
-        self.deletions.insert(event.id, event.clone());
+        self.deletions.insert(event.id, event.created_at);
+        self.journal.push(Record::Deletion(event.clone()));
         let mut changed = BTreeSet::new();
         for wrap in named {
-            self.deleted_by.entry(wrap).or_insert(event.id);
+            if let Entry::Vacant(slot) = self.deleted_by.entry(wrap) {
+                slot.insert(event.id);
+                self.journal.push(Record::Deleted { wrap, by: event.id });
+            }
             changed.extend(self.drop_wrap(&wrap));
         }
         changed
@@ -116,44 +196,56 @@ impl Replica {
             return None;
         }
         let unwrapped = keys.unwrap(event)?;
-        let content = if self.deleted_by.contains_key(&event.id) {
-            WrapContent::Deleted
+        let mut changed = None;
+        let state = if self.deleted_by.contains_key(&event.id) {
+            WrapState::Deleted
         } else {
             match unwrapped {
                 Unwrapped::Version(id, version) => {
                     let node = version.node;
                     self.carriers.entry(id).or_default().insert(event.id);
-                    let new = self.nodes.entry(node).or_default().insert(id);
-                    self.versions.entry(id).or_insert(*version);
-                    self.wraps.insert(
-                        event.id,
-                        Wrap {
-                            created_at: event.created_at,
-                            content: WrapContent::Version {
-                                id,
-                                event: event.clone(),
-                            },
-                        },
-                    );
-                    return new.then_some(node);
+                    if self.nodes.entry(node).or_default().insert(id) {
+                        changed = Some(node);
+                        self.journal.push(Record::Version {
+                            id,
+                            version: (*version).clone(),
+                        });
+                        self.versions.insert(id, *version);
+                    }
+                    WrapState::Version(id)
                 }
-                Unwrapped::Unreadable(_) => WrapContent::Unreadable(event.clone()),
-                Unwrapped::Junk => WrapContent::Junk,
+                Unwrapped::Unreadable(_) => WrapState::Unreadable,
+                Unwrapped::Junk => WrapState::Junk,
             }
         };
+        self.journal.push(Record::Wrap {
+            id: event.id,
+            created_at: event.created_at,
+            state,
+            event: state.is_kept().then(|| event.clone()),
+        });
         let wrap = Wrap {
             created_at: event.created_at,
-            content,
+            state,
         };
         self.wraps.insert(event.id, wrap);
-        None
+        changed
     }
 
     /// The node that lost a version, when the wrap carried its last copy.
     fn drop_wrap(&mut self, wrap: &EventId) -> Option<NodeId> {
         let record = self.wraps.get_mut(wrap)?;
-        let content = std::mem::replace(&mut record.content, WrapContent::Deleted);
-        let WrapContent::Version { id, .. } = content else {
+        let previous = std::mem::replace(&mut record.state, WrapState::Deleted);
+        if previous == WrapState::Deleted {
+            return None;
+        }
+        self.journal.push(Record::Wrap {
+            id: *wrap,
+            created_at: record.created_at,
+            state: WrapState::Deleted,
+            event: None,
+        });
+        let WrapState::Version(id) = previous else {
             return None;
         };
         let carriers = self.carriers.get_mut(&id)?;
@@ -163,6 +255,7 @@ impl Replica {
         }
         self.carriers.remove(&id);
         let version = self.versions.remove(&id)?;
+        self.journal.push(Record::VersionGone(id));
         let node = version.node;
         if let Some(versions) = self.nodes.get_mut(&node) {
             versions.remove(&id);
@@ -215,8 +308,8 @@ impl Replica {
 
     pub fn deletion_items(&self) -> Vec<(EventId, Timestamp)> {
         self.deletions
-            .values()
-            .map(|event| (event.id, event.created_at))
+            .iter()
+            .map(|(id, created_at)| (*id, *created_at))
             .collect()
     }
 
@@ -260,7 +353,7 @@ impl Replica {
             .chain(
                 self.wraps
                     .iter()
-                    .filter(|(_, wrap)| matches!(wrap.content, WrapContent::Junk))
+                    .filter(|(_, wrap)| wrap.state == WrapState::Junk)
                     .map(|(id, _)| *id),
             )
             .collect();
@@ -269,8 +362,9 @@ impl Replica {
     }
 
     /// What each relay needs so relays converge: the wraps it lacks, and
-    /// the deletions naming wraps it still holds. Junk is not spread.
-    pub fn repairs(&self, holdings: &Holdings) -> Vec<(RelayUrl, Event)> {
+    /// the deletions naming wraps it still holds. Junk is not spread. The
+    /// local database holds the events.
+    pub fn repairs(&self, holdings: &Holdings) -> Vec<(RelayUrl, EventId)> {
         let mut repairs = Vec::new();
         for (relay, held) in &holdings.relays {
             let mut deletions = BTreeSet::new();
@@ -278,21 +372,17 @@ impl Replica {
                 let Some(record) = self.wraps.get(wrap) else {
                     continue;
                 };
-                match &record.content {
-                    WrapContent::Version { event, .. } | WrapContent::Unreadable(event)
-                        if !held.contains(wrap) =>
-                    {
-                        repairs.push((relay.clone(), event.clone()));
+                match record.state {
+                    state if state.is_kept() && !held.contains(wrap) => {
+                        repairs.push((relay.clone(), *wrap));
                     }
-                    WrapContent::Deleted if held.contains(wrap) => {
+                    WrapState::Deleted if held.contains(wrap) => {
                         deletions.extend(self.deleted_by.get(wrap));
                     }
                     _ => {}
                 }
             }
-            for deletion in deletions {
-                repairs.push((relay.clone(), self.deletions[&deletion].clone()));
-            }
+            repairs.extend(deletions.into_iter().map(|id| (relay.clone(), id)));
         }
         repairs
     }
@@ -507,7 +597,7 @@ mod tests {
             .replica
             .repairs(&holdings)
             .into_iter()
-            .map(|(relay, event)| (relay.to_string(), event.id))
+            .map(|(relay, id)| (relay.to_string(), id))
             .collect();
         sent.sort();
         let mut expected = vec![

@@ -7,15 +7,41 @@ use lupine_core::blob::MemoryBlobStore;
 use lupine_core::content::{self, FileKey, TransferOptions};
 use lupine_core::io::MemoryFile;
 
+mod local;
+mod reader;
+mod sync;
+
 uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum CoreError {
+    #[error("no such item")]
+    NoSuchItem,
+    #[error("the requested version is no longer available")]
+    VersionNoLongerAvailable,
+    /// Enumerate everything again.
+    #[error("sync anchor expired")]
+    AnchorExpired,
+    #[error("cancelled")]
+    Cancelled,
+    /// May succeed later.
     #[error("{0}")]
-    Core(#[from] lupine_core::Error),
+    Unreachable(String),
+    #[error("{0}")]
+    Core(String),
     #[error("{0}")]
     Check(String),
+}
+
+impl From<lupine_core::Error> for CoreError {
+    fn from(e: lupine_core::Error) -> Self {
+        match e {
+            lupine_core::Error::AnchorExpired => Self::AnchorExpired,
+            e if e.is_transient() => Self::Unreachable(e.to_string()),
+            e => Self::Core(e.to_string()),
+        }
+    }
 }
 
 #[derive(Debug, uniffi::Record)]

@@ -22,6 +22,31 @@ pub struct DriveLists {
     pub servers: Vec<String>,
 }
 
+impl DriveLists {
+    /// The latest kinds 10050 and 10063 of `drive` on `relays`: the user's
+    /// relays, or the drive's own.
+    pub async fn find(relays: &Relays, drive: PublicKey) -> Result<Self> {
+        let filter = Filter::new()
+            .kinds([Kind::InboxRelays, Kind::BlossomServerList])
+            .author(drive);
+        let events = relays.query(&filter).await?;
+        let latest = |kind: Kind| {
+            events
+                .iter()
+                .filter(|e| e.kind == kind && e.verify().is_ok())
+                .max_by_key(|e| (e.created_at, std::cmp::Reverse(e.id)))
+        };
+        Ok(Self {
+            relays: latest(Kind::InboxRelays)
+                .map(read_relay_list)
+                .unwrap_or_default(),
+            servers: latest(Kind::BlossomServerList)
+                .map(read_server_list)
+                .unwrap_or_default(),
+        })
+    }
+}
+
 pub struct Account<S> {
     signer: Arc<S>,
     user: PublicKey,
@@ -102,24 +127,7 @@ impl<S: UserSigner> Account<S> {
 
     /// The latest kinds 10050 and 10063 of `drive` on the user's relays.
     pub async fn lists(&self, drive: PublicKey) -> Result<DriveLists> {
-        let filter = Filter::new()
-            .kinds([Kind::InboxRelays, Kind::BlossomServerList])
-            .author(drive);
-        let events = self.relays.query(&filter).await?;
-        let latest = |kind: Kind| {
-            events
-                .iter()
-                .filter(|e| e.kind == kind && e.verify().is_ok())
-                .max_by_key(|e| (e.created_at, std::cmp::Reverse(e.id)))
-        };
-        Ok(DriveLists {
-            relays: latest(Kind::InboxRelays)
-                .map(read_relay_list)
-                .unwrap_or_default(),
-            servers: latest(Kind::BlossomServerList)
-                .map(read_server_list)
-                .unwrap_or_default(),
-        })
+        DriveLists::find(&self.relays, drive).await
     }
 
     /// Republishes `event`, unchanged, to the user's relays that lack it.

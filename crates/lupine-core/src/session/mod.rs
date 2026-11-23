@@ -1,8 +1,13 @@
 //! An open drive on this device: its keys, what the device knows of the
 //! drive, and its relays. Syncs, writes versions, settles conflicts and the
-//! tree's repairs, and compacts.
+//! tree's repairs, and compacts. Every step lands in the local database,
+//! with the items it shows.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::future::Future;
+use std::pin::pin;
+use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::join_all;
 use futures::{Stream, StreamExt, stream};
@@ -16,9 +21,11 @@ use crate::content::{ContentDescriptor, FileKey};
 use crate::drive::DriveKeys;
 use crate::error::{Error, Result};
 use crate::ids::{NodeId, VersionId};
+use crate::items::{self, Item};
 use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::relays::{Comparison, Relays, Sent};
 use crate::replica::{Holdings, Replica, Retention};
+use crate::store::Store;
 use crate::tree::Tree;
 
 #[cfg(test)]
@@ -27,6 +34,12 @@ mod tests;
 const SEND_CONCURRENCY: usize = 16;
 /// Conflict copies and repairs can collide again, and need another pass.
 const SETTLE_PASSES: usize = 3;
+/// A full sync while following, for what the live subscription missed.
+pub const RESYNC: Duration = Duration::from_secs(10 * 60);
+/// Live events that arrive this close together are stored together.
+const BATCH_WINDOW: Duration = Duration::from_millis(250);
+const BATCH_MAX: usize = 1000;
+const RETRY: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Default)]
 pub struct SyncReport {
@@ -49,6 +62,15 @@ pub struct Published {
     pub sent: Sent,
 }
 
+/// What [`DriveSession::follow`] reports.
+#[derive(Debug)]
+pub enum Followed<'a> {
+    Syncing,
+    Synced(&'a SyncReport),
+    /// The items shown changed: file system integrations should look.
+    ItemsChanged,
+}
+
 pub struct DriveSession {
     keys: DriveKeys,
     epoch: u32,
@@ -57,25 +79,48 @@ pub struct DriveSession {
     relays: Relays,
     retention: Retention,
     complete: bool,
+    store: Arc<Store>,
+    /// Every drive relay was synced once, in this session or before.
+    synced: bool,
+    items: HashMap<NodeId, Item>,
+    items_changed: bool,
+}
+
+enum Ended {
+    Stopped,
+    Resync,
+    Closed,
 }
 
 impl DriveSession {
-    pub async fn open(
-        keys: DriveKeys,
-        epoch: u32,
-        clock: DeviceClock,
-        relays: impl IntoIterator<Item = RelayUrl>,
-    ) -> Result<Self> {
-        let relays = Relays::for_drive(&keys, relays).await?;
-        Ok(Self {
-            replica: Replica::new(keys.public_key()),
+    /// Opens the drive set up in `store`, as it was when last closed.
+    pub async fn open(store: Arc<Store>, keys: DriveKeys) -> Result<Self> {
+        let drive = store
+            .drive()?
+            .ok_or(Error::Malformed("no drive in the local database"))?;
+        if drive.pubkey != keys.public_key() {
+            return Err(Error::Malformed("this key does not open the drive"));
+        }
+        let (clock, synced) = store.device_state()?;
+        let replica = Replica::restore(keys.public_key(), store.snapshot()?);
+        let items = store.shown_items()?;
+        let relays = Relays::for_drive(&keys, drive.relays).await?;
+        let mut session = Self {
+            replica,
             keys,
-            epoch,
+            epoch: drive.epoch,
             clock,
             relays,
             retention: Retention::default(),
             complete: false,
-        })
+            store,
+            synced,
+            items,
+            items_changed: false,
+        };
+        // The items follow the rules of this version of the core.
+        session.persist(true)?;
+        Ok(session)
     }
 
     pub fn with_retention(mut self, retention: Retention) -> Self {
@@ -87,9 +132,12 @@ impl DriveSession {
         self.keys.public_key()
     }
 
-    /// To persist, so the device never reuses a sequence number.
     pub fn clock(&self) -> DeviceClock {
         self.clock
+    }
+
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
     }
 
     pub fn replica(&self) -> &Replica {
@@ -106,7 +154,25 @@ impl DriveSession {
     }
 
     pub fn tree(&self) -> Tree {
-        self.replica.tree(self.complete)
+        self.replica.tree(self.complete || self.synced)
+    }
+
+    /// Writes what changed since the last call, and the items it changes.
+    fn persist(&mut self, rebuild: bool) -> Result<()> {
+        let records = self.replica.take_journal();
+        let rebuild = rebuild || records.iter().any(|r| r.changes_versions());
+        let shown = rebuild.then(|| items::shown(&self.replica, &self.tree()));
+        let changes = match &shown {
+            Some(shown) => items::diff(&self.items, shown),
+            None => items::ItemChanges::default(),
+        };
+        self.store
+            .commit(&records, self.clock, self.synced, &changes)?;
+        if let Some(shown) = shown {
+            self.items = shown;
+        }
+        self.items_changed |= !changes.is_empty();
+        Ok(())
     }
 
     fn wraps(&self) -> Filter {
@@ -158,11 +224,14 @@ impl DriveSession {
                 .map(|(url, _, wraps)| (url, wraps.held))
                 .collect(),
         };
-        report.repaired = self.send_repairs(&holdings).await;
-
-        if report.failed.is_empty() {
+        let full = report.failed.is_empty();
+        let newly_synced = full && !self.synced;
+        if full {
             self.complete = true;
+            self.synced = true;
         }
+        self.persist(newly_synced)?;
+        report.repaired = self.send_repairs(&holdings).await?;
         Ok(report)
     }
 
@@ -209,20 +278,22 @@ impl DriveSession {
             .extend(self.replica.insert(&self.keys, event));
     }
 
-    async fn send_repairs(&self, holdings: &Holdings) -> usize {
-        let mut by_event: HashMap<EventId, (Event, Vec<RelayUrl>)> = HashMap::new();
-        for (relay, event) in self.replica.repairs(holdings) {
-            by_event
-                .entry(event.id)
-                .or_insert_with(|| (event, Vec::new()))
-                .1
-                .push(relay);
+    async fn send_repairs(&self, holdings: &Holdings) -> Result<usize> {
+        let mut by_event: HashMap<EventId, Vec<RelayUrl>> = HashMap::new();
+        for (relay, id) in self.replica.repairs(holdings) {
+            by_event.entry(id).or_default().push(relay);
         }
-        stream::iter(by_event.into_values())
-            .map(|(event, to)| async move { self.relays.send(&event, &to).await.accepted.len() })
+        let ids: Vec<EventId> = by_event.keys().copied().collect();
+        let events = self.store.events(&ids)?;
+        let sent = stream::iter(events)
+            .map(|event| {
+                let to = &by_event[&event.id];
+                async move { self.relays.send(&event, to).await.accepted.len() }
+            })
             .buffer_unordered(SEND_CONCURRENCY)
             .fold(0, |total, accepted| async move { total + accepted })
-            .await
+            .await;
+        Ok(sent)
     }
 
     /// New wraps and deletions as relays receive them. Pass each to
@@ -235,8 +306,89 @@ impl DriveSession {
     }
 
     /// Returns the nodes whose versions changed.
-    pub fn receive(&mut self, event: &Event) -> BTreeSet<NodeId> {
-        self.replica.insert(&self.keys, event)
+    pub fn receive(&mut self, events: &[Event]) -> Result<BTreeSet<NodeId>> {
+        let mut changed = BTreeSet::new();
+        for event in events {
+            changed.extend(self.replica.insert(&self.keys, event));
+        }
+        self.persist(false)?;
+        Ok(changed)
+    }
+
+    /// Keeps the local database up to date until `stop` completes: follows
+    /// the relays live, and syncs fully at the start and every [`RESYNC`].
+    /// Fails only when the local database does.
+    pub async fn follow(
+        &mut self,
+        stop: impl Future<Output = ()>,
+        mut report: impl FnMut(Followed<'_>),
+    ) -> Result<()> {
+        let mut stop = pin!(stop);
+        let mut live = None;
+        loop {
+            if live.is_none() {
+                live = self.watch().await.ok().map(Box::pin);
+            }
+            report(Followed::Syncing);
+            let synced = self.sync().await?;
+            report(Followed::Synced(&synced));
+            self.report_items(&mut report);
+
+            let ended = match live.as_mut() {
+                Some(events) => {
+                    let resync = pin!(tokio::time::sleep(RESYNC));
+                    self.receive_live(events, &mut stop, resync, &mut report)
+                        .await?
+                }
+                None => tokio::select! {
+                    () = &mut stop => Ended::Stopped,
+                    () = tokio::time::sleep(RETRY) => Ended::Closed,
+                },
+            };
+            match ended {
+                Ended::Stopped => return Ok(()),
+                Ended::Resync => {}
+                Ended::Closed => live = None,
+            }
+        }
+    }
+
+    async fn receive_live(
+        &mut self,
+        live: &mut (impl Stream<Item = Event> + Unpin),
+        stop: &mut (impl Future<Output = ()> + Unpin),
+        mut resync: impl Future<Output = ()> + Unpin,
+        report: &mut impl FnMut(Followed<'_>),
+    ) -> Result<Ended> {
+        loop {
+            let first = tokio::select! {
+                () = &mut *stop => return Ok(Ended::Stopped),
+                () = &mut resync => return Ok(Ended::Resync),
+                event = live.next() => event,
+            };
+            let Some(first) = first else {
+                return Ok(Ended::Closed);
+            };
+            let mut batch = vec![first];
+            let mut window = pin!(tokio::time::sleep(BATCH_WINDOW));
+            while batch.len() < BATCH_MAX {
+                tokio::select! {
+                    () = &mut window => break,
+                    event = live.next() => match event {
+                        Some(event) => batch.push(event),
+                        None => break,
+                    },
+                }
+            }
+            self.receive(&batch)?;
+            self.report_items(report);
+        }
+    }
+
+    fn report_items(&mut self, report: &mut impl FnMut(Followed<'_>)) {
+        if std::mem::take(&mut self.items_changed) {
+            report(Followed::ItemsChanged);
+        }
     }
 
     /// Wraps `version` and sends it to every drive relay. Run
@@ -245,6 +397,7 @@ impl DriveSession {
     pub async fn publish(&mut self, version: NodeVersion) -> Result<Published> {
         let (id, event) = self.keys.wrap(&version)?;
         self.replica.insert(&self.keys, &event);
+        self.persist(false)?;
         let sent = self.relays.send_all(&event).await;
         Ok(Published {
             version: id,
@@ -273,11 +426,13 @@ impl DriveSession {
         name: &str,
         key: &FileKey,
         content: ContentDescriptor,
+        modified: Option<i64>,
     ) -> Result<(NodeId, Published)> {
         self.check_parent(parent)?;
         let node = NodeId::random();
         let stamp = self.clock.stamp(self.epoch);
-        let version = NodeVersion::file(stamp, node, parent, name, key, content);
+        let mut version = NodeVersion::file(stamp, node, parent, name, key, content);
+        version.modified = modified;
         Ok((node, self.publish(version).await?))
     }
 
@@ -458,10 +613,14 @@ impl DriveSession {
             return Ok(0);
         }
         let doomed = self.replica.compaction(unix_millis(), &self.retention);
-        for deletion in self.keys.deletions(doomed.iter().copied())? {
-            // Kept even if no relay takes it: the next sync sends it.
-            self.replica.insert(&self.keys, &deletion);
-            self.relays.send_all(&deletion).await;
+        let deletions = self.keys.deletions(doomed.iter().copied())?;
+        // Kept even if no relay takes them: the next sync sends them.
+        for deletion in &deletions {
+            self.replica.insert(&self.keys, deletion);
+        }
+        self.persist(false)?;
+        for deletion in &deletions {
+            self.relays.send_all(deletion).await;
         }
         Ok(doomed.len())
     }

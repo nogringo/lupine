@@ -12,5 +12,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 lupine-core.workspace = true
+nostr.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "macros"] }
 uniffi = { workspace = true, features = ["tokio"] }
