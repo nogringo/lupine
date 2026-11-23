@@ -105,8 +105,7 @@ Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distr
 - A sync reconciles two sets with each drive relay: the wraps addressed to the drive and the drive's deletions, deletions first. Only ids travel until the missing events are fetched. Relays without NIP-77 are listed with paged REQs instead. Relays that follow NIP-17 serve the wraps after NIP-42 AUTH, which the drive key answers. The sync then sends each relay the wraps it lacks and the deletions of wraps it still holds, so relays converge without a server-side mirror.
 - Version vectors tell which versions of a node are concurrent. Several heads mean concurrent edits: every device shows the same winner, an edit wins over a deletion, and any device resolves them with a version that replaces every head, differing contents becoming conflict copies. Devices resolve conflicts and publish tree repairs only after a full sync, since the version that settles things may only be late.
 - Deterministic rules settle the tree, so every device shows the same one: a folder deleted while something moved into it comes back, cycles from concurrent moves are broken, and names that collide, case and Unicode normalization included, get a suffix.
-- A synced folder is a pair (local path, remote folder node), reconciled by a three-way merge of the local scan, the last synced state and the remote tree.
-- Files are snapshotted with APFS `clonefile` before upload, so editing a file during a long upload cannot produce a mixed version.
+- A synced folder is a pair (local path, drive folder), reconciled by a three-way merge of the local scan, the last synced state and the drive folder. See [Folder sync](#folder-sync).
 - A change from Finder replaces the heads that hold the state Finder showed, and leaves any other head in conflict. New content made from content Finder no longer shows replaces nothing: it stays in conflict with what came since, which becomes a conflict copy. Deleting a file whose content changed since Finder showed it keeps the file and shows it again; an edit of a node deleted elsewhere brings it back.
 
 ## Local database
@@ -117,9 +116,26 @@ Each drive has its own SQLite database, in WAL mode, shared by the app and the F
 - It also holds the tree as Finder shows it, one row per item. Each change to an item takes the next number of a counter, which is the File Provider sync anchor. Anchors carry a random id of the database, so an anchor from a deleted and recreated database expires instead of skipping changes. Items that leave the tree stay as removed rows, so a change enumeration reports them.
 - The app writes it after every step (a sync, a batch of live events, a publication) and signals the working set when items changed. The working set is the whole drive, since the extension does not track which folders are materialized yet.
 - The extension writes each version with the item Finder asked for, in one transaction, so Finder finds the item at once. When the tree rules show something else, such as a suffix for a colliding name, the app corrects the item once it takes the version in.
-- The extension's wraps wait in an outbox, in the order written. The app takes them into its replica and sends them a wave at a time: a folder's tombstone leaves only once those of what it held reached a relay, so a deletion cut short never revives a folder. Sync repairs leave the outbox alone.
+- The wraps of the extension and folder sync wait in an outbox, in the order written. The app takes them into its replica and sends them a wave at a time: a folder's tombstone leaves only once those of what it held reached a relay, so a deletion cut short never revives a folder. Sync repairs leave the outbox alone.
 - It holds decrypted metadata, file keys included, like the files a device downloads. The drive secret stays in the keychain.
-- It holds two device ids per drive, one for the app and one for the extension. Version vectors take a device's versions to follow one another, each written after seeing the last, which two processes writing at once would break. The database is excluded from backups: a restored copy would reuse these ids. Losing the database costs a full sync, and Finder changes not yet sent.
+- It holds three device ids per drive: the session's, the extension's and folder sync's. Version vectors take a device's versions to follow one another, each written after seeing the last, which two writers at once would break. The database is excluded from backups: a restored copy would reuse these ids. Losing the database costs a full sync, and Finder changes not yet sent.
+- For each synced folder, it holds what every entry was when both sides last agreed: its node, its place, the content version of the drive's file, and the file id, size and modification time of the local one.
+
+## Folder sync
+
+A synced folder pairs a folder of the device with a drive folder: the one of the same name at the drive root, made when there is none. Synced folders may not nest. The app watches each one with FSEvents, ignoring its own changes, and runs a pass when it changes, when the drive changes, and every 5 minutes. Passes wait until the session has synced every drive relay once: until then the drive folder may lack entries that a pass would take for deleted.
+
+- A pass merges three trees: the folder as scanned, the drive folder as the local database shows it, and what both were when they last agreed. What changed on one side is applied to the other.
+- The scan tells a move from a deletion by file id. It looks for each entry in place, then under the same file id elsewhere, then in place under a new file id, as a save that writes a new file leaves it. Size, modification time and file id tell a file changed. Renaming a folder publishes one version, whatever it holds. A move made while the scan runs would look like a deletion, so a pass that misses an entry scans again.
+- What changed on both sides is settled as the drive settles concurrent versions. An edit wins over a deletion, on either side. The drive's place wins over a local move. Two contents become concurrent versions, so the conflict copy reaches both sides. Equal contents are no conflict: uploaded with the drive file's key, every chunk is found unchanged and nothing is written.
+- Entries new on both sides at the same place pair up, by name as a case-insensitive volume compares them, so adding a folder the drive already holds merges the two.
+- A folder deleted on one side is deleted on the other only when nothing in it changed or arrived since. Otherwise it comes back, with what changed. A folder moved or renamed on this device while the drive deleted it comes back with all it holds. A deletion on the drive checks, as its tombstones are written, that it takes only what the pass decided to delete.
+- What the drive deletes goes to the Trash, where it can be put back.
+- Each change checks the state it was decided on, and leaves the entry to the next pass when that state is gone. A download replaces only the file the scan saw (`renamex_np` with `RENAME_SWAP`, then a check of what it swapped out), a rename never replaces anything (`RENAME_EXCL`), and the Trash takes only what both sides agreed on. Two moves that would make a loop, one on each side, settle with the drive's place. The record of an entry is written after each change: a pass cut short in between finds both sides equal and records them.
+- Downloads and upload snapshots go through `.lupine-sync`, a staging folder inside the synced folder, so they reach their place with a rename on the same volume. Uploads read an APFS clone, so an edit made during a long upload cannot mix into the version. Modification and creation times travel with the content.
+- A pass does nothing when the folder is missing, when another folder is at its path (the folder's file id is recorded), or when the drive folder was deleted. What the scan cannot read, and what the drive cannot hold, is left alone, and folders that hold it never go to the Trash.
+- Never synced: `.DS_Store`, `Icon\r`, symbolic links, other volumes, and names the drive cannot hold. The name `.lupine-sync` is reserved at the top of a synced folder.
+- Folder sync writes versions under a device id of its own and leaves their wraps in the outbox, as the File Provider extension does: it runs beside the session, which writes repairs of its own.
 
 ## Open questions
 
@@ -132,6 +148,9 @@ Each drive has its own SQLite database, in WAL mode, shared by the app and the F
 - UI toolkits for Windows and Linux.
 - Finder deletions: deleting a folder also deletes what reached the database under it after Finder last enumerated it. The extension could keep those, as it keeps a file edited since.
 - Tags, extended attributes and Finder flags are not kept yet.
+- Folder sync scans the whole folder at each pass. FSEvents could tell which folders to scan again.
+- Mass deletions: emptying a synced folder empties its drive folder, as two-way sync means. Other clients ask before they pass one on.
+- Folder sync on Windows and Linux: without file ids in the scan, a move shows as a deletion and a creation.
 
 ## Roadmap
 
@@ -140,5 +159,5 @@ Each drive has its own SQLite database, in WAL mode, shared by the app and the F
 3. Nostr: drive descriptor, node versions and their graph, compaction, relay sync (done; blob collection and key rotation remain).
 4. Local database and the File Provider read path (enumerate, fetch, partial fetch) (done).
 5. File Provider write path (create, modify, move, delete) (done).
-6. Folder sync engine.
+6. Folder sync engine (done).
 7. Sign-in (nsec, NIP-46), onboarding, settings.

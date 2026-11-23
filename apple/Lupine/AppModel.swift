@@ -29,6 +29,7 @@ final class AppModel {
     private(set) var domainState = DomainState.registering
     private(set) var driveState = DriveState.none
     private(set) var selfTestResult: String?
+    private(set) var folders: SyncedFolders?
     private var sync: DriveSync?
     private var outbox: OutboxSignal.Listener?
 
@@ -72,7 +73,11 @@ final class AppModel {
             driveState = .opening
             let sync = try await openDriveSync(drive: local, secret: secret)
             self.sync = sync
-            outbox = OutboxSignal.Listener { sync.written() }
+            let folderSync = try openFolderSync(drive: local, secret: secret, trash: Trasher())
+            outbox = OutboxSignal.Listener {
+                sync.written()
+                folderSync.changed()
+            }
             signalFinder()
             let reporter = SyncReporter(model: self)
             Task {
@@ -84,6 +89,12 @@ final class AppModel {
                     self.fail("Sync stopped", error)
                 }
             }
+            let folders = SyncedFolders(sync: folderSync, domain: domain) { [weak self] in
+                self?.sync?.written()
+                self?.signalFinder()
+            }
+            self.folders = folders
+            await folders.start()
         } catch {
             fail("Opening the drive failed", error)
         }
@@ -91,6 +102,12 @@ final class AppModel {
 
     fileprivate func report(_ state: DriveState) {
         driveState = state
+    }
+
+    /// The drive changed: Finder and the synced folders should look.
+    fileprivate func driveChanged() {
+        signalFinder()
+        folders?.changed()
     }
 
     fileprivate func signalFinder() {
@@ -142,11 +159,15 @@ private final class SyncReporter: SyncObserver {
     }
 
     func synced(failed: [String]) {
-        onMain { $0.report(.synced(failedRelays: failed.count)) }
+        onMain {
+            $0.report(.synced(failedRelays: failed.count))
+            // Folder sync waits for the first full sync, which may change no item.
+            $0.folders?.changed()
+        }
     }
 
     func itemsChanged() {
-        onMain { $0.signalFinder() }
+        onMain { $0.driveChanged() }
     }
 
     private func onMain(_ update: @escaping @MainActor @Sendable (AppModel) -> Void) {

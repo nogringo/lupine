@@ -1,21 +1,13 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
-use nostr::event::{Event, EventBuilder, EventId, FinalizeEvent, Kind};
+use nostr::event::{EventBuilder, FinalizeEvent, Kind};
 use nostr::filter::Filter;
-use nostr::key::{Keys, PublicKey};
+use nostr::key::Keys;
 use nostr::nips::nip17::PrivateDirectMessageBuilder;
-use nostr::types::{RelayUrl, Timestamp};
-use nostr_database::error::Error as DatabaseError;
-use nostr_database::{
-    DatabaseEventStatus, Features, NostrDatabase, RejectedReason, SaveEventStatus,
-};
-use nostr_memory::MemoryDatabase;
-use nostr_sdk::local_relay::{LocalRelay, LocalRelayBuilder};
+use nostr::types::Timestamp;
 
 use super::*;
 use crate::account::Account;
@@ -23,138 +15,8 @@ use crate::blob::MemoryBlobStore;
 use crate::content::{ContentDescriptor, FileKey};
 use crate::ids::DriveId;
 use crate::store::{DriveRecord, Store};
+use crate::testing::TestRelay;
 use crate::writer::{ItemWriter, NewItem, Place};
-
-type Boxed<'a, T> = Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
-
-/// A relay store that applies NIP-59: a deletion from a gift wrap's
-/// recipient deletes it. nostr-memory 0.45 applies only NIP-09's author
-/// rule, and refuses such deletions outright.
-#[derive(Debug)]
-struct Nip59Store {
-    inner: MemoryDatabase,
-    deleted: Mutex<HashSet<EventId>>,
-    /// Named by a deletion before they arrived, with who deleted them.
-    pending: Mutex<HashMap<EventId, PublicKey>>,
-}
-
-impl Nip59Store {
-    fn new() -> Self {
-        Self {
-            inner: MemoryDatabase::builder().process_nip09(false).build(),
-            deleted: Mutex::default(),
-            pending: Mutex::default(),
-        }
-    }
-
-    fn may_delete(target: &Event, deleter: &PublicKey) -> bool {
-        target.pubkey == *deleter
-            || (target.kind == Kind::GiftWrap && target.tags.public_keys().any(|pk| pk == *deleter))
-    }
-}
-
-impl NostrDatabase for Nip59Store {
-    fn backend(&self) -> &'static str {
-        "nip59-test"
-    }
-
-    fn features(&self) -> Features {
-        self.inner.features()
-    }
-
-    fn save_event<'a>(&'a self, event: &'a Event) -> Boxed<'a, SaveEventStatus> {
-        Box::pin(async move {
-            let deleter = self.pending.lock().unwrap().get(&event.id).copied();
-            let refused = self.deleted.lock().unwrap().contains(&event.id)
-                || deleter.is_some_and(|d| Self::may_delete(event, &d));
-            if refused {
-                return Ok(SaveEventStatus::Rejected(RejectedReason::Deleted));
-            }
-            if event.kind == Kind::EventDeletion {
-                for id in event.tags.event_ids() {
-                    match self.inner.event_by_id(&id).await? {
-                        Some(target) if Self::may_delete(&target, &event.pubkey) => {
-                            self.inner.delete(Filter::new().id(id)).await?;
-                            self.deleted.lock().unwrap().insert(id);
-                        }
-                        Some(_) => {}
-                        None => {
-                            self.pending.lock().unwrap().insert(id, event.pubkey);
-                        }
-                    }
-                }
-            }
-            self.inner.save_event(event).await
-        })
-    }
-
-    fn check_id<'a>(&'a self, id: &'a EventId) -> Boxed<'a, DatabaseEventStatus> {
-        Box::pin(async move {
-            if self.deleted.lock().unwrap().contains(id) {
-                return Ok(DatabaseEventStatus::Deleted);
-            }
-            self.inner.check_id(id).await
-        })
-    }
-
-    fn event_by_id<'a>(&'a self, id: &'a EventId) -> Boxed<'a, Option<Event>> {
-        self.inner.event_by_id(id)
-    }
-
-    fn count(&self, filter: Filter) -> Boxed<'_, usize> {
-        self.inner.count(filter)
-    }
-
-    fn query(&self, filter: Filter) -> Boxed<'_, BTreeSet<Event>> {
-        self.inner.query(filter)
-    }
-
-    fn negentropy_items(&self, filter: Filter) -> Boxed<'_, Vec<(EventId, Timestamp)>> {
-        self.inner.negentropy_items(filter)
-    }
-
-    fn delete(&self, filter: Filter) -> Boxed<'_, ()> {
-        self.inner.delete(filter)
-    }
-
-    fn wipe(&self) -> Boxed<'_, ()> {
-        self.inner.wipe()
-    }
-}
-
-/// Serves gift wraps only to their recipient, after NIP-42 AUTH, as NIP-17
-/// asks.
-struct TestRelay {
-    relay: LocalRelay,
-    store: Arc<Nip59Store>,
-    url: RelayUrl,
-}
-
-impl TestRelay {
-    async fn start() -> Self {
-        Self::with(|builder| builder).await
-    }
-
-    async fn with(configure: impl FnOnce(LocalRelayBuilder) -> LocalRelayBuilder) -> Self {
-        let store = Arc::new(Nip59Store::new());
-        let builder = LocalRelay::builder()
-            .database(Arc::clone(&store))
-            .auth_dm(true);
-        let relay = configure(builder).build();
-        relay.run().await.unwrap();
-        let url = relay.url().await;
-        Self { relay, store, url }
-    }
-
-    async fn holds(&self, id: EventId) -> bool {
-        self.store.event_by_id(&id).await.unwrap().is_some()
-    }
-
-    async fn wraps(&self) -> usize {
-        let filter = Filter::new().kind(Kind::GiftWrap);
-        self.store.count(filter).await.unwrap()
-    }
-}
 
 fn store(drive: &DriveKeys, relays: &[&TestRelay]) -> Arc<Store> {
     let store = Store::memory().unwrap();
@@ -705,6 +567,31 @@ async fn the_session_takes_in_and_sends_what_the_extension_wrote() {
     synced(&mut other).await;
     assert!(other.tree().is_empty());
     assert_eq!(other.settle().await.unwrap(), 0, "no folder revived");
+}
+
+#[tokio::test]
+async fn the_session_takes_in_what_is_written_after_the_outbox_drained() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let local = store(&drive, &[&a]);
+    let mut session = open(&drive, &local).await;
+    synced(&mut session).await;
+    let writer = extension(&drive, &local);
+    writer
+        .create(new_item(None, "First", true), None, &|_| {})
+        .await
+        .unwrap();
+    assert_eq!(session.take_in().await.unwrap(), 1);
+
+    let second = writer
+        .create(new_item(None, "Second", true), None, &|_| {})
+        .await
+        .unwrap()
+        .unwrap();
+    let inside = new_item(Some(second.node), "Inside", true);
+    writer.create(inside, None, &|_| {}).await.unwrap();
+    assert_eq!(session.take_in().await.unwrap(), 2);
+    assert_eq!(listing(&session), ["First", "Second", "Second/Inside"]);
 }
 
 #[tokio::test]

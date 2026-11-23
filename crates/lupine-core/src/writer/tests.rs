@@ -333,6 +333,20 @@ async fn content_edited_from_an_older_version_stays_in_conflict() {
 }
 
 #[tokio::test]
+async fn content_equal_to_the_winners_conflicts_with_nothing() {
+    let mut s = Setup::new();
+    let notes = s.create(None, "notes.txt", b"same").await;
+    s.remote(&notes.node, |v| v.modified = Some(99));
+    let path = s.file(b"same");
+    let unknown_base = Edit::default();
+    s.writer
+        .modify(notes.node, false, unknown_base, Some(&path), &|_| {})
+        .await
+        .unwrap();
+    assert_eq!(s.heads(&notes.node).len(), 1);
+}
+
+#[tokio::test]
 async fn an_edit_brings_back_a_node_deleted_elsewhere() {
     let mut s = Setup::new();
     let notes = s.create(None, "notes.txt", b"keep me").await;
@@ -390,6 +404,24 @@ async fn deleting_a_folder_tombstones_its_contents_deepest_first() {
         s.writer.delete(photos.node, None, true).unwrap(),
         Deletion::Unknown
     );
+}
+
+#[tokio::test]
+async fn a_checked_deletion_takes_only_what_it_expects() {
+    let mut s = Setup::new();
+    let folder = s.folder(None, "Folder").await;
+    let known = s.create(Some(folder.node), "known.txt", b"k").await;
+    let expected = |item: &Item| item.node == folder.node || item.node == known.node;
+    let arrived = s.create(Some(folder.node), "arrived.txt", b"a").await;
+
+    let kept = s.writer.delete_if(folder.node, expected).unwrap();
+    assert!(matches!(kept, Deletion::Kept(_)));
+    assert!(s.store().item(&arrived.node).unwrap().is_some());
+    assert!(!s.heads(&known.node)[0].is_tombstone());
+
+    let everything = |_: &Item| true;
+    let deleted = s.writer.delete_if(folder.node, everything).unwrap();
+    assert_eq!(deleted, Deletion::Deleted(3));
 }
 
 #[tokio::test]

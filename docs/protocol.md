@@ -129,7 +129,7 @@ A version's id is the SHA-256 of its decrypted plaintext, padding included. The 
 
 A node keeps its type until it is deleted. A `deleted` version is a tombstone: it keeps the `parent` and `name` the node had, so the node can be restored, and has no `file`. Readers ignore unknown fields.
 
-A device id is 16 random bytes, generated once per install. Two installs never share one: an install cloned or restored from a backup generates a new id. Each process of an install that writes versions on its own, such as an app and its File Provider extension, has an id of its own: a device writes each version after seeing its last one.
+A device id is 16 random bytes, generated once per install. Two installs never share one: an install cloned or restored from a backup generates a new id. Each part of an install that writes versions on its own, such as an app, its File Provider extension and its folder sync, has an id of its own: a device writes each version after seeing its last one.
 
 Each device numbers the versions it writes, across all nodes. A new version takes the greater of the previous number plus one and the current Unix time in milliseconds, so a device that lost its counter does not reuse a number.
 

@@ -22,6 +22,7 @@ getrandom = "0.4"
 hex = "0.4"
 hkdf = "0.13"
 hmac = "0.13"
+libc = "0.2"
 nostr = { version = "0.45", default-features = false, features = ["std", "nip44", "os-rng"] }
 nostr-sdk = { version = "0.45", default-features = false, features = ["aws_lc_rs", "rustls-tls-native-roots"] }
 nostr-database = "0.45"

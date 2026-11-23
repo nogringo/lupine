@@ -1,9 +1,9 @@
 //! The local database of one drive: what this device knows of it, kept
 //! across launches, and the tree as file system integrations show it, with
 //! a change log they enumerate from a sync anchor. SQLite in WAL mode, so
-//! the app and the File Provider extension share it. The extension writes
-//! its own versions and leaves their wraps in an outbox, which the app's
-//! session sends.
+//! the app and the File Provider extension share it. The extension and
+//! folder sync write their own versions and leave their wraps in an outbox,
+//! which the app's session sends.
 //!
 //! It holds decrypted metadata, file keys included, like the files a device
 //! downloads. The drive secret is not in it.
@@ -26,11 +26,13 @@ use crate::node::{DeviceClock, FileMeta, NodeVersion};
 use crate::replica::{Record, Snapshot, WrapState};
 use crate::tree::EntryKind;
 
+mod folders;
+
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Migration `n` takes the schema from version `n` to `n + 1`. A new
 /// database runs them all.
-const MIGRATIONS: [&str; 2] = [SCHEMA_V1, MIGRATION_V2];
+const MIGRATIONS: [&str; 3] = [SCHEMA_V1, MIGRATION_V2, MIGRATION_V3];
 
 const SCHEMA_V1: &str = "
 CREATE TABLE drive (
@@ -103,6 +105,32 @@ CREATE TABLE outbox (
 );
 ";
 
+/// Folder sync: the synced folders, what each entry was when both sides
+/// last agreed, and a device id of its own.
+const MIGRATION_V3: &str = "
+INSERT INTO writers (writer, device, clock) SELECT 2, randomblob(16), 0 FROM drive;
+CREATE TABLE folders (
+    id INTEGER PRIMARY KEY,
+    root BLOB NOT NULL,
+    path TEXT NOT NULL,
+    file_id INTEGER NOT NULL,
+    bookmark BLOB
+);
+CREATE TABLE synced (
+    folder INTEGER NOT NULL,
+    node BLOB NOT NULL,
+    parent BLOB NOT NULL,
+    name TEXT NOT NULL,
+    is_folder INTEGER NOT NULL,
+    content BLOB,
+    modified INTEGER,
+    file_id INTEGER NOT NULL,
+    size INTEGER NOT NULL,
+    mtime INTEGER NOT NULL,
+    PRIMARY KEY (folder, node)
+) WITHOUT ROWID;
+";
+
 const STATE_VERSION: i64 = 0;
 const STATE_UNREADABLE: i64 = 1;
 const STATE_JUNK: i64 = 2;
@@ -120,18 +148,23 @@ pub enum Writer {
     /// A file system integration in a process of its own, such as a File
     /// Provider extension.
     Extension,
+    /// Folder sync, in the app's process but beside the session.
+    Folders,
 }
 
 impl Writer {
+    const ALL: [Self; 3] = [Self::Session, Self::Extension, Self::Folders];
+
     fn code(self) -> i64 {
         match self {
             Self::Session => 0,
             Self::Extension => 1,
+            Self::Folders => 2,
         }
     }
 }
 
-/// A wrap the extension wrote, for the session to send.
+/// A wrap the extension or folder sync wrote, for the session to send.
 #[derive(Debug)]
 pub(crate) struct Outgoing {
     pub seq: i64,
@@ -224,7 +257,7 @@ impl Store {
         })
     }
 
-    fn lock(&self) -> MutexGuard<'_, Connection> {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -284,7 +317,7 @@ impl Store {
                         random_bytes::<8>(),
                     ],
                 )?;
-                for writer in [Writer::Session, Writer::Extension] {
+                for writer in Writer::ALL {
                     tx.execute(
                         "INSERT INTO writers (writer, device, clock) VALUES (?1, ?2, 0)",
                         params![writer.code(), DeviceId::random().as_bytes()],
@@ -399,11 +432,12 @@ impl Store {
         Ok(())
     }
 
-    /// What the extension wrote, in one transaction: the records, its
-    /// clock, the items they change, and `outbox`, the wraps for the session
-    /// to send, in order, each with its barrier.
-    pub(crate) fn commit_extension(
+    /// What a writer other than the session wrote, in one transaction: the
+    /// records, its clock, the items they change, and `outbox`, the wraps for
+    /// the session to send, in order, each with its barrier.
+    pub(crate) fn commit_outbox(
         &self,
+        writer: Writer,
         records: &[Record],
         clock: DeviceClock,
         items: &ItemChanges,
@@ -415,7 +449,7 @@ impl Store {
             write_record(&tx, record)?;
         }
         write_items(&tx, items)?;
-        set_clock(&tx, Writer::Extension, clock)?;
+        set_clock(&tx, writer, clock)?;
         {
             let mut insert =
                 tx.prepare_cached("INSERT INTO outbox (wrap, barrier) VALUES (?1, ?2)")?;
@@ -817,6 +851,8 @@ mod tests {
         assert_eq!(reopened.device_state().unwrap().0.device, clock.device);
         let extension = reopened.clock(Writer::Extension).unwrap();
         assert_ne!(extension.device, clock.device);
+        let folders = reopened.clock(Writer::Folders).unwrap();
+        assert_ne!(folders.device, extension.device);
     }
 
     #[test]
@@ -860,6 +896,9 @@ mod tests {
         let extension = store.clock(Writer::Extension).unwrap();
         assert_ne!(extension.device, device);
         assert_eq!(extension.last, 0);
+        let folders = store.clock(Writer::Folders).unwrap();
+        assert_ne!(folders.device, extension.device);
+        assert!(store.folders().unwrap().is_empty());
         let versions = store.node_versions(&version.node).unwrap();
         assert_eq!(versions.len(), 1);
         assert_eq!(versions[0].0, id);

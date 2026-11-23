@@ -46,6 +46,13 @@ pub enum Error {
     /// The file system integration should enumerate everything again.
     #[error("sync anchor expired")]
     AnchorExpired,
+    /// Moved, deleted or on a volume that is not mounted.
+    #[error("the synced folder cannot be found on this device")]
+    LocalFolderMissing,
+    #[error("the drive folder this folder syncs with was deleted")]
+    DriveFolderMissing,
+    #[error("{0}")]
+    FolderOverlap(&'static str),
     #[error("local database: {0}")]
     Database(#[from] rusqlite::Error),
     #[error(transparent)]

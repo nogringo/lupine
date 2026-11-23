@@ -1505,6 +1505,7 @@ dependencies = [
  "hex",
  "hkdf",
  "hmac",
+ "libc",
  "nostr",
  "nostr-database",
  "nostr-memory",

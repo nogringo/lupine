@@ -44,6 +44,32 @@ pub trait BlobStore: Send + Sync {
     }
 }
 
+impl<S: BlobStore> BlobStore for std::sync::Arc<S> {
+    fn put(&self, hash: Sha256Hash, blob: Bytes) -> impl Future<Output = Result<()>> + Send {
+        (**self).put(hash, blob)
+    }
+
+    fn get(&self, hash: Sha256Hash) -> impl Future<Output = Result<Bytes>> + Send {
+        (**self).get(hash)
+    }
+
+    fn get_range(
+        &self,
+        hash: Sha256Hash,
+        range: Range<u64>,
+    ) -> impl Future<Output = Result<Bytes>> + Send {
+        (**self).get_range(hash, range)
+    }
+
+    fn delete(&self, hash: Sha256Hash) -> impl Future<Output = Result<()>> + Send {
+        (**self).delete(hash)
+    }
+
+    fn replicate(&self, hash: Sha256Hash) -> impl Future<Output = Result<()>> + Send {
+        (**self).replicate(hash)
+    }
+}
+
 pub(crate) fn slice(blob: Bytes, range: Range<u64>) -> Result<Bytes> {
     if range.start > range.end || range.end > blob.len() as u64 {
         return Err(Error::Malformed("range outside the blob"));

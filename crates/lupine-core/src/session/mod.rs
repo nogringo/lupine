@@ -88,8 +88,6 @@ pub struct DriveSession {
     synced: bool,
     items: HashMap<NodeId, Item>,
     items_changed: bool,
-    /// The last outbox entry taken into the replica.
-    outbox_seen: i64,
 }
 
 enum Ended {
@@ -123,7 +121,6 @@ impl DriveSession {
             synced,
             items,
             items_changed: false,
-            outbox_seen: 0,
         };
         // The items follow the rules of this version of the core.
         session.persist(true)?;
@@ -331,26 +328,24 @@ impl DriveSession {
         Ok(changed)
     }
 
-    /// Takes in the versions the extension wrote to the local database,
-    /// then sends its outbox to the relays. Returns the wraps relays took.
+    /// Takes in the versions the extension and folder sync wrote to the
+    /// local database, then sends the outbox to the relays. Returns the
+    /// wraps relays took.
     pub async fn take_in(&mut self) -> Result<usize> {
         let outbox = self.absorb()?;
         self.send_outbox(outbox).await
     }
 
-    /// Adds the extension's new versions to the replica. The extension
-    /// wrote the items they show, so only what the tree rules change
-    /// besides is written again.
+    /// Adds the new versions of the extension and folder sync to the
+    /// replica. They wrote the items they show, so only what the tree rules
+    /// change besides is written again.
     fn absorb(&mut self) -> Result<Vec<Outgoing>> {
         let outbox = self.store.outbox(0)?;
         let mut changed = BTreeSet::new();
-        for outgoing in outbox.iter().filter(|o| o.seq > self.outbox_seen) {
-            if let Some(event) = &outgoing.event {
-                changed.extend(self.replica.insert(&self.keys, event));
-            }
-        }
-        if let Some(last) = outbox.last() {
-            self.outbox_seen = self.outbox_seen.max(last.seq);
+        // Wraps the replica holds change nothing. Sequence numbers start over
+        // once the outbox drains, so they cannot tell what is new.
+        for event in outbox.iter().filter_map(|o| o.event.as_ref()) {
+            changed.extend(self.replica.insert(&self.keys, event));
         }
         for node in &changed {
             match self.store.item(node)? {

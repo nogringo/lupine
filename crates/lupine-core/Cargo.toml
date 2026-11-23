@@ -29,6 +29,9 @@ tokio = { workspace = true, features = ["rt", "fs", "sync", "io-util", "time", "
 unicode-normalization.workspace = true
 zeroize.workspace = true
 
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 axum.workspace = true
 nostr = { workspace = true, features = ["nip59"] }

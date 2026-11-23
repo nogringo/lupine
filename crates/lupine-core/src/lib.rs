@@ -11,6 +11,7 @@ pub mod drive;
 mod encoding;
 pub mod error;
 pub mod fetch;
+pub mod folder_sync;
 pub mod graph;
 pub mod ids;
 pub mod io;
@@ -22,6 +23,8 @@ pub mod replica;
 pub mod session;
 pub mod store;
 mod task;
+#[cfg(test)]
+mod testing;
 pub mod tree;
 pub mod writer;
 

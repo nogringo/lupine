@@ -7,6 +7,7 @@ use lupine_core::blob::MemoryBlobStore;
 use lupine_core::content::{self, FileKey, TransferOptions};
 use lupine_core::io::MemoryFile;
 
+mod folders;
 mod local;
 mod reader;
 mod sync;

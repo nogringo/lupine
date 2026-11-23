@@ -1,8 +1,8 @@
-//! Changes a file system integration makes from a process of its own, such
-//! as a File Provider extension. Uploads content, then writes each version
-//! to the local database with the item it shows, under the extension's own
-//! device id. The wraps wait in the outbox, which the drive session sends to
-//! the relays.
+//! Changes a file system integration makes beside the drive session: a File
+//! Provider extension in a process of its own, or folder sync. Uploads
+//! content, then writes each version to the local database with the item it
+//! shows, under the integration's own device id. The wraps wait in the
+//! outbox, which the drive session sends to the relays.
 //!
 //! The item written is what the integration asked for. When the tree rules
 //! show something else, the session corrects the item once it takes the
@@ -77,14 +77,16 @@ pub struct Edit {
 pub enum Deletion {
     /// Tombstones written, for the item and everything under it.
     Deleted(usize),
-    /// The file changed after the content the integration deleted: the
-    /// newer content wins over the deletion and shows again.
+    /// Something changed after what the integration deleted, such as a
+    /// file's content: the newer state wins over the deletion and shows
+    /// again.
     Kept(Item),
     /// Gone already.
     Unknown,
 }
 
 pub struct ItemWriter<S> {
+    writer: Writer,
     keys: DriveKeys,
     epoch: u32,
     store: Arc<Store>,
@@ -130,6 +132,7 @@ impl<S: BlobStore> ItemWriter<S> {
             return Err(Error::Malformed("this key does not open the drive"));
         }
         Ok(Self {
+            writer: Writer::Extension,
             keys,
             epoch: drive.epoch,
             store,
@@ -138,6 +141,12 @@ impl<S: BlobStore> ItemWriter<S> {
             writing: Mutex::new(()),
             uploads: Semaphore::new(UPLOAD_BUDGET as usize),
         })
+    }
+
+    /// Writes under the device id of `writer` rather than the extension's.
+    pub fn writing_as(mut self, writer: Writer) -> Self {
+        self.writer = writer;
+        self
     }
 
     /// The chunk size applies to new files; an edit keeps its file's.
@@ -164,7 +173,7 @@ impl<S: BlobStore> ItemWriter<S> {
     ) -> Result<Option<Item>> {
         let name = checked_name(&new.place.name)?;
         let parent = new.place.parent;
-        let node = NodeId::created(&self.store.clock(Writer::Extension)?.device, &new.request);
+        let node = NodeId::created(&self.store.clock(self.writer)?.device, &new.request);
         if let Some(existing) = self.store.item(&node)? {
             return Ok(Some(existing));
         }
@@ -282,8 +291,10 @@ impl<S: BlobStore> ItemWriter<S> {
             };
             let item = shown(&next, parent, name);
 
-            let stale =
-                file.is_some() && items::content_version(winner.file.as_ref()) != edit.base_content;
+            // The content the winner already holds conflicts with nothing.
+            let stale = file.is_some()
+                && file.as_ref() != winner.file.as_ref()
+                && items::content_version(winner.file.as_ref()) != edit.base_content;
             if !stale && next.same_state(winner) {
                 return Ok(current.unwrap_or(item));
             }
@@ -323,44 +334,64 @@ impl<S: BlobStore> ItemWriter<S> {
         if levels.len() > 1 && !recursive {
             return Err(Error::FolderNotEmpty);
         }
+        self.write(|batch| self.tombstones(batch, &levels))
+    }
 
+    /// Tombstones for `node` and everything under it, as [`delete`](Self::delete)
+    /// writes them, provided `expected` accepts every item under it as the
+    /// local database shows it when the tombstones are written. Anything
+    /// else, such as an entry that arrived since, keeps the whole deletion
+    /// back with [`Deletion::Kept`].
+    pub fn delete_if(&self, node: NodeId, expected: impl Fn(&Item) -> bool) -> Result<Deletion> {
+        let Some(item) = self.store.item(&node)? else {
+            return Ok(Deletion::Unknown);
+        };
         self.write(|batch| {
-            let mut written = 0;
-            for level in levels.iter().rev() {
-                let mut barrier = true;
-                for current in level {
-                    let versions = self.store.node_versions(current)?;
-                    let history = history(&versions);
-                    let Some(heads) = history.heads() else {
-                        continue;
-                    };
-                    let (winner_id, winner) = heads.winner();
-                    if winner.is_tombstone() {
-                        continue;
-                    }
-                    // A conflicting file content nobody here saw survives
-                    // the deletion. Folders hold no content.
-                    let mut replaced = vec![winner];
-                    replaced.extend(
-                        heads
-                            .iter()
-                            .filter(|(id, head)| {
-                                *id != winner_id
-                                    && (winner.node_type == NodeType::Folder
-                                        || head.same_state(winner))
-                            })
-                            .map(|(_, head)| head),
-                    );
-                    let tombstone =
-                        NodeVersion::tombstone(batch.clock.stamp(batch.epoch), &replaced)?;
-                    batch.add(tombstone, barrier)?;
-                    barrier = false;
-                    written += 1;
+            let levels = self.subtree(node)?;
+            for current in levels.iter().flatten() {
+                if !self.store.item(current)?.is_some_and(|i| expected(&i)) {
+                    return Ok(Deletion::Kept(item.clone()));
                 }
-                batch.items.removed.extend(level.iter().copied());
             }
-            Ok(Deletion::Deleted(written))
+            self.tombstones(batch, &levels)
         })
+    }
+
+    /// One wave per level, from the deepest.
+    fn tombstones(&self, batch: &mut Batch<'_>, levels: &[Vec<NodeId>]) -> Result<Deletion> {
+        let mut written = 0;
+        for level in levels.iter().rev() {
+            let mut barrier = true;
+            for current in level {
+                let versions = self.store.node_versions(current)?;
+                let history = history(&versions);
+                let Some(heads) = history.heads() else {
+                    continue;
+                };
+                let (winner_id, winner) = heads.winner();
+                if winner.is_tombstone() {
+                    continue;
+                }
+                // A conflicting file content nobody here saw survives the
+                // deletion. Folders hold no content.
+                let mut replaced = vec![winner];
+                replaced.extend(
+                    heads
+                        .iter()
+                        .filter(|(id, head)| {
+                            *id != winner_id
+                                && (winner.node_type == NodeType::Folder || head.same_state(winner))
+                        })
+                        .map(|(_, head)| head),
+                );
+                let tombstone = NodeVersion::tombstone(batch.clock.stamp(batch.epoch), &replaced)?;
+                batch.add(tombstone, barrier)?;
+                barrier = false;
+                written += 1;
+            }
+            batch.items.removed.extend(level.iter().copied());
+        }
+        Ok(Deletion::Deleted(written))
     }
 
     fn write<T>(&self, change: impl FnOnce(&mut Batch<'_>) -> Result<T>) -> Result<T> {
@@ -368,14 +399,19 @@ impl<S: BlobStore> ItemWriter<S> {
         let mut batch = Batch {
             keys: &self.keys,
             epoch: self.epoch,
-            clock: self.store.clock(Writer::Extension)?,
+            clock: self.store.clock(self.writer)?,
             records: Vec::new(),
             outbox: Vec::new(),
             items: ItemChanges::default(),
         };
         let value = change(&mut batch)?;
-        self.store
-            .commit_extension(&batch.records, batch.clock, &batch.items, &batch.outbox)?;
+        self.store.commit_outbox(
+            self.writer,
+            &batch.records,
+            batch.clock,
+            &batch.items,
+            &batch.outbox,
+        )?;
         Ok(value)
     }
 
