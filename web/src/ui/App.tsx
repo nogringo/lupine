@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { callback, lupine } from "../lib/client";
+import { start } from "../lib/client";
 import { message } from "../lib/format";
 import type { AppState } from "../lib/state";
 import { Drive } from "./Drive";
@@ -17,8 +17,7 @@ export function App() {
   useEffect(() => {
     if (started) return;
     started = true;
-    void lupine.subscribe(callback(setState));
-    lupine.start().catch((error: unknown) => setFailure(message(error)));
+    start(setState, (error) => setFailure(message(error)));
   }, []);
 
   if (failure) {

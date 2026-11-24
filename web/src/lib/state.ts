@@ -33,7 +33,7 @@ export interface OpenDrive {
 export type AppState =
   | { phase: "starting" }
   | { phase: "unsupported"; reason: string }
-  /** Another tab holds the drive. This one takes over when it closes. */
+  /** Another tab holds the drive, and this browser has no shared worker to reach it. This one takes over when it closes. */
   | { phase: "elsewhere" }
   /** `retired`: another device changed the drive key. */
   | { phase: "signedOut"; retired: boolean }

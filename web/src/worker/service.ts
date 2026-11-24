@@ -13,8 +13,9 @@ const DAY = 24 * HOUR;
 const PROGRESS_INTERVAL = 150;
 /** The session reports no sent change, so the count of unsent ones is read again. */
 const UNSENT_INTERVAL = 1000;
+const STORAGE_ATTEMPTS = 10;
 
-type Listener = (state: AppState) => void;
+export type Listener = (state: AppState) => void;
 
 /** What runs while a drive is open. */
 interface Opened {
@@ -39,8 +40,9 @@ interface Background {
 }
 
 /**
- * The drive, as the page sees it. Lives in a dedicated worker: OPFS sync
- * access handles, which the local database needs, exist only there.
+ * The drive, as every tab sees it. Lives in the leader tab's dedicated
+ * worker: OPFS sync access handles, which the local database needs, exist
+ * only there.
  */
 export class Service {
   private state: AppState = { phase: "starting" };
@@ -56,7 +58,11 @@ export class Service {
     listener(this.state);
   }
 
-  /** Waits for this tab to hold the drive, then opens it. */
+  unsubscribe(listener: Listener): void {
+    this.listeners.delete(listener);
+  }
+
+  /** Opens the drive, once this worker holds it. */
   start(): Promise<void> {
     this.started ??= this.open();
     return this.started;
@@ -290,12 +296,8 @@ export class Service {
       this.setState({ phase: "unsupported", reason: missing });
       return;
     }
-    if (!(await holdDrive(true))) {
-      this.setState({ phase: "elsewhere" });
-      await holdDrive(false);
-    }
     await init();
-    await core.initStorage();
+    await initStorage();
     await clearDownloads();
     await this.openDrive();
   }
@@ -601,22 +603,19 @@ export class Service {
   }
 }
 
-/**
- * One tab at a time holds the drive: OPFS sync access handles are exclusive.
- * `ifAvailable`: resolves `false` at once when another tab holds it, else
- * waits for it.
- */
-function holdDrive(ifAvailable: boolean): Promise<boolean> {
-  return new Promise((resolve) => {
-    void navigator.locks.request("lupine-drive", { ifAvailable }, (lock) => {
-      resolve(lock !== null);
-      // Held for the life of the worker.
-      return lock ? new Promise<never>(() => {}) : undefined;
-    });
-  });
+/** The previous leader's worker may hold the files a moment after its lock goes. */
+async function initStorage(): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await core.initStorage();
+    } catch (error) {
+      if (attempt === STORAGE_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
+  }
 }
 
-function unsupported(): string | undefined {
+export function unsupported(): string | undefined {
   if (!("locks" in navigator)) return "This browser lacks the Web Locks API.";
   if (!navigator.storage?.getDirectory) return "This browser lacks the origin private file system.";
   if (!("createSyncAccessHandle" in FileSystemFileHandle.prototype)) {

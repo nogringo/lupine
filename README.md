@@ -45,7 +45,7 @@ At first launch, Lupine opens a window to sign in: with a signer app (NIP-46, a 
 
 Lupine then shows up in the Finder sidebar. What Finder changes there reaches the relays while the Lupine app runs. To sync a folder of the Mac, choose Add Folder... in the menu. It syncs with the drive folder of the same name at the drive root, made when there is none. The menu also opens the settings, which show the recovery key, change the drive key and sign out. Changing the key takes your Nostr key once; the other devices then ask you to sign in again.
 
-The web app offers the same sign-in, a NIP-07 browser extension included, then shows the drive as a list of folders and files: upload by picking or dropping files and folders, download by opening a file, and rename, move or delete from each item's menu. One tab at a time holds the drive. Its Blossom servers must allow requests from web pages (CORS).
+The web app offers the same sign-in, a NIP-07 browser extension included, then shows the drive as a list of folders and files: upload by picking or dropping files and folders, download by opening a file, and rename, move or delete from each item's menu. Several tabs can show the drive at once. Its Blossom servers must allow requests from web pages (CORS).
 
 To try a drive without a Nostr account, the `seed` example creates one holding a copy of a local folder, empty or not, and prints its recovery key, which both sign-in screens open.
 
