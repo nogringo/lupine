@@ -1,6 +1,6 @@
 # Lupine protocol, v1 (draft)
 
-Event kind 3540 is provisional. `crates/lupine-core` implements everything below except blob collection and key rotation.
+Event kind 3540 is provisional. `crates/lupine-core` implements everything below except key rotation.
 
 ## Conventions
 
@@ -244,7 +244,8 @@ Encryption is deterministic: the same plaintext at the same position gives the s
 - Partial reads use `GET /<sha256>` with a `Range` header (BUD-01). When a server ignores `Range` and returns the whole blob, the client keeps the part it needs.
 - Authorization (BUD-11): kind 24242 signed by the drive key, with a `t` tag, the `x` tag of the blob, a `server` tag holding the server's host name, and a short expiration. Uploads, mirrors and deletions always carry a token; reads carry one once a server answers `401`. An upload token may carry several `x` tags.
 - Deletion is `DELETE /<sha256>` (BUD-12). A `404` counts as deleted.
-- A client deletes a blob (BUD-12) once it has seen no version on any drive relay reference it for 30 days, and checks again, after a full sync, right before deleting it. A blob that no version ever referenced, from an upload whose version was never published, is deleted by the device that uploaded it, 30 days after the upload.
+- A client deletes a blob (BUD-12) from every drive server once no version it holds has referenced it for 30 days, counted from the first full sync that found it unreferenced. It checks again right after a full sync of every drive relay, before deleting it. A version references its chunks, its chunk table and the chunks the table lists. A blob that no version ever referenced, from an upload whose version was never published, is deleted by the device that uploaded it, 30 days after the upload. The servers the drive left keep their blobs.
+- A client that holds a version it cannot read, such as a later format, deletes no blob: that version may reference any. Neither does a client that cannot read a chunk table for now. A table on no server, or that no server serves intact, lists nothing a reader could use.
 
 ## What servers learn
 

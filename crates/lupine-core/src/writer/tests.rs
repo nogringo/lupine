@@ -310,6 +310,22 @@ async fn new_content_uploads_only_the_chunks_that_changed() {
 }
 
 #[tokio::test]
+async fn an_edit_uploads_again_the_chunks_collected_since() {
+    let mut s = Setup::new();
+    let mut bytes: Vec<u8> = (0..3 * CS).map(|i| (i % 251) as u8).collect();
+    let file = s.create(None, "notes.txt", &bytes).await;
+    let meta = file.file.as_ref().unwrap();
+    let key = meta.file_key();
+    let content = meta.content.resolve(s.writer.blobs(), &key).await.unwrap();
+    let collected = content.chunks()[0].blob;
+    s.writer.blobs().delete(collected).await.unwrap();
+
+    bytes[2 * CS] ^= 0xff;
+    let edited = s.rewrite(&file, &bytes).await;
+    assert_eq!(s.read(&edited).await, bytes);
+}
+
+#[tokio::test]
 async fn content_edited_from_an_older_version_stays_in_conflict() {
     let mut s = Setup::new();
     let notes = s.create(None, "notes.txt", b"draft").await;

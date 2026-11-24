@@ -4,6 +4,7 @@
 pub mod account;
 pub mod blob;
 pub mod blossom;
+pub mod collection;
 pub mod content;
 pub mod crypto;
 pub mod descriptor;

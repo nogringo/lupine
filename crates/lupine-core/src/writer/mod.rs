@@ -9,9 +9,11 @@
 //! version in.
 
 use std::collections::HashSet;
+use std::ops::Range;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, stream};
 use nostr::event::EventId;
 use tokio::sync::Semaphore;
@@ -22,11 +24,11 @@ use crate::content::{self, FileKey, Progress, TransferOptions};
 use crate::drive::DriveKeys;
 use crate::error::{Error, Result};
 use crate::graph::History;
-use crate::ids::{NodeId, VersionId};
+use crate::ids::{NodeId, Sha256Hash, VersionId};
 use crate::io::ReadAt;
 use crate::items::{self, Item, ItemChanges};
 use crate::names;
-use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion};
+use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::replica::{Record, WrapState};
 use crate::store::{Store, Writer};
 use crate::task::blocking;
@@ -106,6 +108,44 @@ struct Batch<'a> {
     records: Vec<Record>,
     outbox: Vec<(EventId, bool)>,
     items: ItemChanges,
+    /// Blobs uploaded for the batch, which a version now references.
+    referenced: Vec<Sha256Hash>,
+}
+
+/// New content, with every blob it references.
+struct Uploaded {
+    file: FileMeta,
+    blobs: Vec<Sha256Hash>,
+}
+
+/// Notes each blob in the local database before uploading it, so that blob
+/// collection deletes it if no version ends up referencing it.
+struct Noting<'a, S> {
+    blobs: &'a S,
+    store: &'a Store,
+}
+
+impl<S: BlobStore> BlobStore for Noting<'_, S> {
+    async fn put(&self, hash: Sha256Hash, blob: Bytes) -> Result<()> {
+        self.store.note_blobs(&[hash], unix_millis())?;
+        self.blobs.put(hash, blob).await
+    }
+
+    async fn get(&self, hash: Sha256Hash) -> Result<Bytes> {
+        self.blobs.get(hash).await
+    }
+
+    async fn get_range(&self, hash: Sha256Hash, range: Range<u64>) -> Result<Bytes> {
+        self.blobs.get_range(hash, range).await
+    }
+
+    async fn delete(&self, hash: Sha256Hash) -> Result<()> {
+        self.blobs.delete(hash).await
+    }
+
+    async fn replicate(&self, hash: Sha256Hash) -> Result<()> {
+        self.blobs.replicate(hash).await
+    }
 }
 
 impl Batch<'_> {
@@ -208,14 +248,18 @@ impl<S: BlobStore> ItemWriter<S> {
             let replaced = history.heads().map(|h| h.versions()).unwrap_or_default();
             let stamp = batch.clock.stamp(batch.epoch);
             let mut version = match &file {
-                Some(file) => NodeVersion::file(
-                    stamp,
-                    node,
-                    parent,
-                    &name,
-                    &file.file_key(),
-                    file.content.clone(),
-                ),
+                Some(uploaded) => {
+                    batch.referenced.extend(&uploaded.blobs);
+                    let file = &uploaded.file;
+                    NodeVersion::file(
+                        stamp,
+                        node,
+                        parent,
+                        &name,
+                        &file.file_key(),
+                        file.content.clone(),
+                    )
+                }
                 None => NodeVersion::folder(stamp, node, parent, &name),
             };
             version.created = new.created;
@@ -261,6 +305,11 @@ impl<S: BlobStore> ItemWriter<S> {
         };
 
         self.write(|batch| {
+            // The new version references them, or the winner already does.
+            let file = file.map(|uploaded| {
+                batch.referenced.extend(&uploaded.blobs);
+                uploaded.file
+            });
             let versions = self.store.node_versions(&node)?;
             let history = history(&versions);
             let heads = history.heads().ok_or(Error::UnknownNode)?;
@@ -403,6 +452,7 @@ impl<S: BlobStore> ItemWriter<S> {
             records: Vec::new(),
             outbox: Vec::new(),
             items: ItemChanges::default(),
+            referenced: Vec::new(),
         };
         let value = change(&mut batch)?;
         self.store.commit_outbox(
@@ -411,6 +461,7 @@ impl<S: BlobStore> ItemWriter<S> {
             batch.clock,
             &batch.items,
             &batch.outbox,
+            &batch.referenced,
         )?;
         Ok(value)
     }
@@ -445,7 +496,7 @@ impl<S: BlobStore> ItemWriter<S> {
         path: &Path,
         base: Option<&FileMeta>,
         progress: Progress<'_>,
-    ) -> Result<FileMeta> {
+    ) -> Result<Uploaded> {
         let path = path.to_owned();
         let source = Arc::new(blocking(move || std::fs::File::open(path)).await?);
         let size = source.size()?;
@@ -481,9 +532,13 @@ impl<S: BlobStore> ItemWriter<S> {
             .acquire_many(buffers)
             .await
             .expect("the upload budget is never closed");
-        let uploaded = content::upload(
-            &self.blobs,
-            source,
+        let noting = Noting {
+            blobs: &self.blobs,
+            store: &self.store,
+        };
+        let mut uploaded = content::upload(
+            &noting,
+            Arc::clone(&source),
             &key,
             previous.as_ref(),
             options,
@@ -498,16 +553,34 @@ impl<S: BlobStore> ItemWriter<S> {
                 .map(|c| c.blob)
                 .filter(|blob| kept.contains(blob))
                 .collect();
-            stream::iter(reused)
+            self.store.note_blobs(&reused, unix_millis())?;
+            let replicated = stream::iter(reused)
                 .map(|blob| self.blobs.replicate(blob))
                 .buffer_unordered(REPLICATE_CONCURRENCY)
                 .try_collect::<()>()
-                .await?;
+                .await;
+            match replicated {
+                Ok(()) => {}
+                // Collected since: encryption gives the same blobs again.
+                Err(Error::BlobNotFound(_)) => {
+                    uploaded =
+                        content::upload(&noting, source, &key, None, options, progress).await?;
+                }
+                Err(e) => return Err(e),
+            }
         }
-        let content = uploaded.describe(&self.blobs, &key).await?;
-        Ok(FileMeta {
-            key: key.root().clone(),
-            content,
+        let content = uploaded.describe(&noting, &key).await?;
+        let mut blobs: Vec<_> = uploaded.chunks().iter().map(|c| c.blob).collect();
+        if let Some(table) = content.table {
+            self.store.set_table_chunks(&table, &blobs)?;
+            blobs.push(table);
+        }
+        Ok(Uploaded {
+            file: FileMeta {
+                key: key.root().clone(),
+                content,
+            },
+            blobs,
         })
     }
 

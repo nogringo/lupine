@@ -8,6 +8,7 @@ use lupine_core::content::{self, FileKey, TransferOptions};
 use lupine_core::io::MemoryFile;
 
 mod account;
+mod collection;
 mod folders;
 mod lists;
 mod local;

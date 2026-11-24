@@ -3,7 +3,7 @@
 //! moves to with every blob it references.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use futures::future::try_join_all;
 use futures::{StreamExt, stream};
@@ -14,6 +14,7 @@ use nostr::types::RelayUrl;
 
 use crate::blob::BlobStore;
 use crate::blossom::{BlossomServer, BlossomStore};
+use crate::collection::{References, references};
 use crate::content::{ChunkLayout, DEFAULT_CHUNK_SIZE};
 use crate::drive::{DriveKeys, read_relay_list, read_server_list};
 use crate::error::{Error, Result};
@@ -223,26 +224,11 @@ pub async fn fill(
     let blobs = BlossomStore::new(&drive.servers, keys.keys())?
         .with_sources(&state.leaving, keys.keys())?;
 
-    let mut hashes = BTreeSet::new();
-    let mut tables = BTreeSet::new();
-    let mut failed = BTreeMap::new();
-    for file in store.file_contents()? {
-        let content = &file.content;
-        if let Some(table) = content.table {
-            if !tables.insert(table) {
-                continue;
-            }
-            hashes.insert(table);
-        }
-        match content.resolve(&blobs, &file.file_key()).await {
-            Ok(resolved) => hashes.extend(resolved.chunks().iter().map(|chunk| chunk.blob)),
-            Err(e) => {
-                if let Some(table) = content.table {
-                    failed.insert(table, e);
-                }
-            }
-        }
-    }
+    let References {
+        blobs: hashes,
+        unread,
+    } = references(store, &blobs).await?;
+    let mut failed: BTreeMap<_, _> = unread.into_iter().collect();
 
     let total = hashes.len();
     let mut done = 0;
@@ -263,7 +249,6 @@ pub async fn fill(
             }
         }
     }
-    // A table on no server at all is lost too.
     failed.retain(|hash, _| !lost.contains(hash));
     if failed.is_empty() {
         store.filled(state.fill)?;

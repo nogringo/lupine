@@ -20,12 +20,13 @@ use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::crypto::random_bytes;
 use crate::error::{Error, Result};
-use crate::ids::{DeviceId, DriveId, NodeId, VersionId};
+use crate::ids::{DeviceId, DriveId, NodeId, Sha256Hash, VersionId};
 use crate::items::{Item, ItemChanges};
 use crate::node::{DeviceClock, FileMeta, NodeVersion};
 use crate::replica::{Record, Retention, Snapshot, WrapState};
 use crate::tree::EntryKind;
 
+mod blobs;
 mod folders;
 mod lists;
 
@@ -35,13 +36,14 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Migration `n` takes the schema from version `n` to `n + 1`. A new
 /// database runs them all.
-const MIGRATIONS: [&str; 6] = [
+const MIGRATIONS: [&str; 7] = [
     SCHEMA_V1,
     MIGRATION_V2,
     MIGRATION_V3,
     MIGRATION_V4,
     MIGRATION_V5,
     MIGRATION_V6,
+    MIGRATION_V7,
 ];
 
 const SCHEMA_V1: &str = "
@@ -162,6 +164,20 @@ ALTER TABLE drive ADD COLUMN relays_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE drive ADD COLUMN servers_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE drive ADD COLUMN leaving TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE drive ADD COLUMN fill INTEGER NOT NULL DEFAULT 0;
+";
+
+/// Blob collection: each blob this device knows of, with the Unix
+/// milliseconds since which no version it holds references it (`NULL` while
+/// one does), and the blobs each chunk table lists.
+const MIGRATION_V7: &str = "
+CREATE TABLE blobs (
+    hash BLOB PRIMARY KEY,
+    unreferenced INTEGER
+) WITHOUT ROWID;
+CREATE TABLE tables (
+    hash BLOB PRIMARY KEY,
+    chunks BLOB NOT NULL
+) WITHOUT ROWID;
 ";
 
 const STATE_VERSION: i64 = 0;
@@ -551,8 +567,9 @@ impl Store {
     }
 
     /// What a writer other than the session wrote, in one transaction: the
-    /// records, its clock, the items they change, and `outbox`, the wraps for
-    /// the session to send, in order, each with its barrier.
+    /// records, its clock, the items they change, `outbox`, the wraps for
+    /// the session to send, in order, each with its barrier, and the blobs
+    /// it uploaded that a version now references.
     pub(crate) fn commit_outbox(
         &self,
         writer: Writer,
@@ -560,6 +577,7 @@ impl Store {
         clock: DeviceClock,
         items: &ItemChanges,
         outbox: &[(EventId, bool)],
+        referenced: &[Sha256Hash],
     ) -> Result<()> {
         let mut conn = self.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -573,6 +591,11 @@ impl Store {
                 tx.prepare_cached("INSERT INTO outbox (wrap, barrier) VALUES (?1, ?2)")?;
             for (wrap, barrier) in outbox {
                 insert.execute(params![wrap.as_bytes(), barrier])?;
+            }
+            let mut referenced_now =
+                tx.prepare_cached("UPDATE blobs SET unreferenced = NULL WHERE hash = ?1")?;
+            for hash in referenced {
+                referenced_now.execute([hash.as_bytes()])?;
             }
         }
         tx.commit()?;

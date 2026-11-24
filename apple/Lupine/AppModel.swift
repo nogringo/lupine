@@ -53,6 +53,9 @@ final class AppModel {
     private var filling: Task<Void, Never>?
     private var fillStop: Cancellation?
     private var lastFill: Date?
+    private var collecting: Task<Void, Never>?
+    private var collectionStop: Cancellation?
+    private var lastCollection: Date?
 
     var hasDrive: Bool {
         local != nil
@@ -174,7 +177,9 @@ final class AppModel {
     /// Stops everything that uses the drive, which stays set up.
     private func closeDrive() async {
         fillStop?.cancel()
+        collectionStop?.cancel()
         await filling?.value
+        await collecting?.value
         sync?.stop()
         await syncing?.value
         await folders?.stop()
@@ -185,6 +190,7 @@ final class AppModel {
         local = nil
         fill = nil
         lastFill = nil
+        lastCollection = nil
         keptDescriptor = false
         driveState = .none
     }
@@ -289,6 +295,37 @@ final class AppModel {
         }
     }
 
+    /// Deletes the blobs no version referenced for 30 days, once a day, once
+    /// the session synced every relay. Never while a fill copies blobs.
+    fileprivate func startCollection() {
+        guard collecting == nil, filling == nil, let local,
+              lastCollection.map({ $0.timeIntervalSinceNow < -86400 }) ?? true,
+              let id = info?.id, let secret = try? DriveKeychain.secret(drive: id)
+        else { return }
+        let stop = Cancellation()
+        collectionStop = stop
+        lastCollection = Date()
+        collecting = Task {
+            do {
+                let report = try await LupineCore.collectBlobs(drive: local, secret: secret, cancellation: stop)
+                if report.deleted > 0 {
+                    logger.info("Collection deleted \(report.deleted) blobs")
+                }
+                if report.heldBack {
+                    logger.info("Collection held back: the drive holds a version this app cannot read")
+                }
+                for failure in report.failed {
+                    logger.error("Deleting a blob failed: \(failure, privacy: .public)")
+                }
+            } catch CoreError.Cancelled {
+            } catch {
+                logger.error("Collecting blobs failed: \(error.localizedDescription, privacy: .public)")
+            }
+            collecting = nil
+            collectionStop = nil
+        }
+    }
+
     fileprivate func fillProgressed(_ progress: Fill) {
         if filling != nil {
             fill = progress
@@ -370,6 +407,7 @@ private final class SyncReporter: SyncObserver {
             $0.keepDescriptor()
             if failed.isEmpty {
                 $0.startFill()
+                $0.startCollection()
             }
         }
     }
