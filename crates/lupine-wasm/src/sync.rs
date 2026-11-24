@@ -4,10 +4,12 @@
 use std::sync::Arc;
 
 use js_sys::Function;
+use lupine_core::Error;
 use lupine_core::account;
 use lupine_core::drive::DriveKeys;
 use lupine_core::session::{DriveSession, Followed};
 use lupine_core::store::Store;
+use nostr::types::RelayUrl;
 use serde::Serialize;
 use tokio::sync::{Mutex, Notify};
 use wasm_bindgen::prelude::*;
@@ -27,22 +29,47 @@ const TYPES: &str = r#"
  */
 export type SyncEvent =
     | { type: "syncing" }
-    | { type: "synced"; failed: string[] }
+    | { type: "synced"; failed: RelayFailure[] }
     | { type: "compacted"; wraps: number }
     | { type: "listsChanged" }
     | { type: "itemsChanged" }
     | { type: "retired" };
+
+export interface RelayFailure {
+    relay: string;
+    reason: string;
+}
 "#;
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum SyncEvent {
     Syncing,
-    Synced { failed: Vec<String> },
+    Synced { failed: Vec<RelayFailure> },
     Compacted { wraps: usize },
     ListsChanged,
     ItemsChanged,
     Retired,
+}
+
+#[derive(Serialize)]
+struct RelayFailure {
+    relay: String,
+    reason: String,
+}
+
+impl RelayFailure {
+    fn new(relay: &RelayUrl, error: &Error) -> Self {
+        let reason = match error {
+            // It names the relay already.
+            Error::Relay { message, .. } => message.clone(),
+            error => error.to_string(),
+        };
+        Self {
+            relay: relay.to_string(),
+            reason,
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -86,7 +113,7 @@ impl DriveSync {
                     failed: sync
                         .failed
                         .iter()
-                        .map(|(relay, e)| format!("{relay}: {e}"))
+                        .map(|(relay, e)| RelayFailure::new(relay, e))
                         .collect(),
                 }),
                 Followed::Compacted(wraps) => report(SyncEvent::Compacted { wraps }),

@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
 import { message } from "../lib/format";
 import { nameProblem } from "../lib/names";
 
@@ -26,6 +26,26 @@ export function Modal({
       </div>
     </dialog>
   );
+}
+
+/** Calls `onClose` on Escape or a press outside `ref`, while `active`. */
+export function useDismiss(ref: RefObject<HTMLElement | null>, onClose: () => void, active = true) {
+  const close = useEffectEvent(onClose);
+  useEffect(() => {
+    if (!active) return;
+    const away = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) close();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [ref, active]);
 }
 
 /** Runs `action`, keeping the dialog open with the error when it fails. */

@@ -357,11 +357,71 @@ textarea.input {
   font-size: 1.1rem;
 }
 
+.status-anchor {
+  position: relative;
+  margin-left: auto;
+}
+
 .status {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+button.status {
+  margin: -0.3em -0.5em;
+  padding: 0.3em 0.5em;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+button.status:hover,
+button.status[aria-expanded="true"] {
+  background: var(--petal);
+  color: var(--ink);
+}
+
+button.status::after {
+  content: "";
+  width: 0.35rem;
+  height: 0.35rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-25%) rotate(45deg);
+}
+
+button.status[aria-expanded="true"]::after {
+  transform: translateY(25%) rotate(-135deg);
+}
+
+.status-details {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  gap: 0.6rem;
+  width: min(24rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: 0 12px 32px -12px rgb(31 26 61 / 35%);
+}
+
+.status-details strong {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.status-details span {
   color: var(--muted);
   font-size: 0.9rem;
 }

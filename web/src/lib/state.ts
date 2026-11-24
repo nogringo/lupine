@@ -1,11 +1,11 @@
-import type { DriveInfo, DriveLists, RemoteDrive } from "../../core/lupine";
+import type { DriveInfo, DriveLists, RelayFailure, RemoteDrive } from "../../core/lupine";
 
 export type { DriveInfo, DriveItem, DriveLists, RemoteDrive } from "../../core/lupine";
 
 export type SyncStatus =
   | { kind: "opening" }
   | { kind: "syncing" }
-  | { kind: "synced"; failed: string[] }
+  | { kind: "synced"; failed: RelayFailure[] }
   | { kind: "failed"; message: string };
 
 export interface Transfer {

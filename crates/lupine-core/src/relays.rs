@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -66,6 +66,8 @@ impl Sent {
 pub struct Relays {
     client: Client,
     urls: Vec<RelayUrl>,
+    /// Listed with plain REQs from then on.
+    without_negentropy: Mutex<HashSet<RelayUrl>>,
 }
 
 impl Relays {
@@ -114,6 +116,7 @@ impl Relays {
         Ok(Self {
             client,
             urls: unique,
+            without_negentropy: Mutex::default(),
         })
     }
 
@@ -131,7 +134,7 @@ impl Relays {
     ) -> Result<Comparison> {
         let relay = self.relay(url).await?;
         let mut attempt = 1;
-        loop {
+        while !self.lacks_negentropy(url) {
             let sync = relay
                 .sync(filter.clone())
                 .items(items.iter().copied())
@@ -156,23 +159,28 @@ impl Relays {
                     task::sleep(Duration::from_millis(100) * 2u32.pow(attempt)).await;
                     attempt += 1;
                 }
-                Err(e) if lacks_negentropy(&e) => {
-                    let ours: HashSet<EventId> = items.iter().map(|(id, _)| *id).collect();
-                    let listed = list(&relay, filter)
-                        .await
-                        .map_err(|e| relay_error(url, e))?;
-                    return Ok(Comparison {
-                        held: listed.iter().map(|e| e.id).collect(),
-                        missing: Vec::new(),
-                        events: listed
-                            .into_iter()
-                            .filter(|e| !ours.contains(&e.id))
-                            .collect(),
-                    });
+                Err(e) if refuses_negentropy(&e) => {
+                    self.without_negentropy.lock().unwrap().insert(url.clone());
                 }
                 Err(e) => return Err(relay_error(url, e)),
             }
         }
+        let ours: HashSet<EventId> = items.iter().map(|(id, _)| *id).collect();
+        let listed = list(&relay, filter)
+            .await
+            .map_err(|e| relay_error(url, e))?;
+        Ok(Comparison {
+            held: listed.iter().map(|e| e.id).collect(),
+            missing: Vec::new(),
+            events: listed
+                .into_iter()
+                .filter(|e| !ours.contains(&e.id))
+                .collect(),
+        })
+    }
+
+    fn lacks_negentropy(&self, url: &RelayUrl) -> bool {
+        self.without_negentropy.lock().unwrap().contains(url)
     }
 
     /// Events by id, within `filter`: relays that follow NIP-17 serve gift
@@ -354,8 +362,10 @@ async fn list(relay: &Relay, filter: &Filter) -> Result<Vec<Event>, SdkError> {
     Ok(events.into_values().collect())
 }
 
-fn lacks_negentropy(error: &SdkError) -> bool {
-    error.kind() == ErrorKind::Unsupported || error.to_string().contains("negentropy")
+/// A relay that ignores NEG-OPEN, rather than refusing it, only times out.
+fn refuses_negentropy(error: &SdkError) -> bool {
+    matches!(error.kind(), ErrorKind::Unsupported | ErrorKind::Timeout)
+        || error.to_string().contains("negentropy")
 }
 
 fn relay_error(url: &RelayUrl, error: impl fmt::Display) -> Error {

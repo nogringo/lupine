@@ -4,11 +4,12 @@ import { dropped, picked } from "../lib/drop";
 import { bytes, date, message } from "../lib/format";
 import { folded } from "../lib/names";
 import type { Collision, DriveItem, OpenDrive, Upload } from "../lib/state";
-import { ConfirmDialog, Copy, Modal, NameDialog } from "./dialogs";
+import { ConfirmDialog, Copy, Modal, NameDialog, useDismiss } from "./dialogs";
 import { Mark } from "./Flower";
 import { FileIcon, FolderIcon, MoreIcon } from "./icons";
 import { MoveDialog } from "./MoveDialog";
 import { Settings } from "./Settings";
+import { Status } from "./Status";
 import { Transfers } from "./Transfers";
 
 /** What a row drag carries, so drops tell a move from an upload. */
@@ -190,7 +191,6 @@ export function Drive({
     </th>
   );
 
-  const status = statusOf(drive);
   const title = drive.info.name ?? "Lupine";
 
   return (
@@ -198,9 +198,7 @@ export function Drive({
       <header className="topbar">
         <Mark />
         <h1>{title}</h1>
-        <span className={`status ${status.tone}`} title={status.detail}>
-          {status.text}
-        </span>
+        <Status drive={drive} />
         <button className="button quiet" onClick={() => setDialog({ kind: "settings" })}>
           Settings
         </button>
@@ -464,21 +462,10 @@ function ItemMenu({
   onDelete: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, onClose);
   useEffect(() => {
     ref.current?.querySelector("button")?.focus();
-    const away = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose();
-    };
-    const escape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [onClose]);
+  }, []);
   const choose = (action: () => void) => () => {
     onClose();
     action();
@@ -504,20 +491,4 @@ function ItemMenu({
       </button>
     </div>
   );
-}
-
-function statusOf(drive: OpenDrive): { text: string; tone: string; detail?: string } {
-  const sync = drive.sync;
-  if (sync.kind === "failed") return { text: "Sync stopped", tone: "bad", detail: sync.message };
-  if (sync.kind === "opening") return { text: "Connecting", tone: "busy" };
-  if (sync.kind === "syncing") return { text: "Syncing", tone: "busy" };
-  if (sync.failed.length > 0) {
-    const relays = sync.failed.length === 1 ? "1 relay" : `${sync.failed.length} relays`;
-    return { text: `${relays} unreachable`, tone: "bad", detail: sync.failed.join("\n") };
-  }
-  if (drive.fill) return { text: `Copying files to new servers, ${drive.fill.done} of ${drive.fill.total}`, tone: "busy" };
-  if (drive.unsent > 0) {
-    return { text: drive.unsent === 1 ? "Sending 1 change" : `Sending ${drive.unsent} changes`, tone: "busy" };
-  }
-  return { text: "Up to date", tone: "ok" };
 }
