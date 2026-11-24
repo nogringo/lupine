@@ -27,7 +27,7 @@ use crate::ids::NodeId;
 use crate::items::Item;
 use crate::names::{self, Folded};
 use crate::task::blocking;
-use crate::writer::{Deletion, Edit, NewItem, Place};
+use crate::writer::{Contents, Deletion, Edit, NewItem, Place};
 
 /// Files uploaded or downloaded at once.
 const TRANSFERS: usize = 4;
@@ -1214,7 +1214,7 @@ impl<'a, S: BlobStore + 'static> Pass<'a, S> {
                 let written = self
                     .sync
                     .writer
-                    .modify(node, false, edit, Some(&snapshot), &|_| {})
+                    .modify(node, false, edit, Some(Contents::File(&snapshot)), &|_| {})
                     .await;
                 let _ = std::fs::remove_file(&snapshot);
                 let item = written?;
@@ -1251,7 +1251,11 @@ impl<'a, S: BlobStore + 'static> Pass<'a, S> {
                     modified: Some(millis(entry.stat.mtime)),
                 };
                 let snapshot = self.snapshot(&source, entry.stat).await?;
-                let created = self.sync.writer.create(new, Some(&snapshot), &|_| {}).await;
+                let created = self
+                    .sync
+                    .writer
+                    .create(new, Some(Contents::File(&snapshot)), &|_| {})
+                    .await;
                 let _ = std::fs::remove_file(&snapshot);
                 let item = created?.ok_or(Error::Malformed("no file created"))?;
                 Ok(Done {

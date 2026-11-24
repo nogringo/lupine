@@ -27,6 +27,7 @@ use crate::replica::{Record, Retention, Snapshot, WrapState};
 use crate::tree::EntryKind;
 
 mod blobs;
+#[cfg(not(target_family = "wasm"))]
 mod folders;
 mod lists;
 mod rotation;
@@ -320,6 +321,8 @@ impl Store {
         }
         let conn = Connection::open(path)?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
+        // The web's OPFS storage has no shared memory for WAL, nor a second process.
+        #[cfg(not(target_family = "wasm"))]
         conn.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         Self::migrate(conn)

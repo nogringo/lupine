@@ -25,6 +25,7 @@ use nostr_sdk::relay::{Relay, SyncOptions};
 use crate::descriptor::UserSigner;
 use crate::drive::DriveKeys;
 use crate::error::{Error, Result};
+use crate::task;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -152,7 +153,7 @@ impl Relays {
                 }
                 // The relay sent its AUTH challenge with this refusal.
                 Err(e) if e.to_string().contains("auth-required") && attempt < AUTH_ATTEMPTS => {
-                    tokio::time::sleep(Duration::from_millis(100) * 2u32.pow(attempt)).await;
+                    task::sleep(Duration::from_millis(100) * 2u32.pow(attempt)).await;
                     attempt += 1;
                 }
                 Err(e) if lacks_negentropy(&e) => {
@@ -202,12 +203,12 @@ impl Relays {
     pub async fn events(&self, url: &RelayUrl, filter: &Filter) -> Result<Vec<Event>> {
         let relay = self.relay(url).await?;
         let fetch = relay.fetch_events(filter.clone().limit(PAGE));
-        match tokio::time::timeout(FETCH_TIMEOUT, fetch).await {
-            Ok(found) => Ok(found
+        match task::timeout(FETCH_TIMEOUT, fetch).await {
+            Some(found) => Ok(found
                 .map_err(|e| relay_error(url, e))?
                 .into_iter()
                 .collect()),
-            Err(_) => Err(relay_error(url, "no answer in time")),
+            None => Err(relay_error(url, "no answer in time")),
         }
     }
 

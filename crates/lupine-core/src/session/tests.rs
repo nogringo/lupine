@@ -16,7 +16,7 @@ use crate::content::{ContentDescriptor, FileKey};
 use crate::ids::DriveId;
 use crate::store::{DriveRecord, Store};
 use crate::testing::TestRelay;
-use crate::writer::{ItemWriter, NewItem, Place};
+use crate::writer::{Contents, ItemWriter, NewItem, Place};
 
 fn store(drive: &DriveKeys, relays: &[&TestRelay]) -> Arc<Store> {
     let store = Store::memory().unwrap();
@@ -619,7 +619,10 @@ async fn the_session_takes_in_and_sends_what_the_extension_wrote() {
         .unwrap()
         .unwrap();
     let new = new_item(Some(photos.node), "beach.jpg", false);
-    writer.create(new, Some(&path), &|_| {}).await.unwrap();
+    writer
+        .create(new, Some(Contents::File(&path)), &|_| {})
+        .await
+        .unwrap();
     let anchor = local.anchor().unwrap();
     assert_eq!(a.wraps().await, 0, "the extension sends nothing");
 

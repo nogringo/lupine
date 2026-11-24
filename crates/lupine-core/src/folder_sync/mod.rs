@@ -29,7 +29,7 @@ use crate::fetch::FileReader;
 use crate::ids::NodeId;
 use crate::names::{self, Folded};
 use crate::store::{Store, Writer};
-use crate::task::blocking;
+use crate::task::{self, blocking};
 use crate::writer::{ItemWriter, NewItem, Place};
 
 mod fs;
@@ -287,11 +287,11 @@ impl<S: BlobStore + 'static> FolderSync<S> {
             tokio::select! {
                 () = &mut stop => return Ok(()),
                 () = changed.notified() => {}
-                () = tokio::time::sleep(RESCAN) => {}
+                () = task::sleep(RESCAN) => {}
             }
             tokio::select! {
                 () = &mut stop => return Ok(()),
-                () = tokio::time::sleep(DEBOUNCE) => {}
+                () = task::sleep(DEBOUNCE) => {}
             }
         }
     }

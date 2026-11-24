@@ -12,6 +12,7 @@ pub mod drive;
 mod encoding;
 pub mod error;
 pub mod fetch;
+#[cfg(not(target_family = "wasm"))]
 pub mod folder_sync;
 pub mod graph;
 pub mod identity;

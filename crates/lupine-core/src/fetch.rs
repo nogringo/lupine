@@ -2,8 +2,8 @@
 //! integrations ask for it.
 
 use std::collections::VecDeque;
-use std::fs::File;
 use std::ops::Range;
+#[cfg(any(unix, windows))]
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +11,9 @@ use crate::blob::BlobStore;
 use crate::content::{self, FileContent, Progress, TransferOptions};
 use crate::error::Result;
 use crate::ids::Sha256Hash;
+use crate::io::WriteAt;
 use crate::node::FileMeta;
+#[cfg(any(unix, windows))]
 use crate::task::blocking;
 
 /// External chunk tables kept, so reads that seek through a large file do
@@ -42,12 +44,49 @@ impl<S: BlobStore> FileReader<S> {
     /// within the file, widened to `alignment` (a power of two) and to
     /// segment boundaries, except at the end of the file. The file at
     /// `path` has the full size; what lies outside that range stays sparse.
+    #[cfg(any(unix, windows))]
     pub async fn read(
         &self,
         file: &FileMeta,
         range: Range<u64>,
         alignment: u64,
         path: &Path,
+        progress: Progress<'_>,
+    ) -> Result<Range<u64>> {
+        let size = file.content.size;
+        let content = self.content(file).await?;
+        let path = path.to_owned();
+        let sink = blocking(move || {
+            let sink = std::fs::File::create(path)?;
+            sink.set_len(size)?;
+            Ok::<_, std::io::Error>(sink)
+        })
+        .await?;
+        self.download(file, &content, range, alignment, Arc::new(sink), progress)
+            .await
+    }
+
+    /// Like `read`, at the same offsets in `sink`.
+    pub async fn read_into<W: WriteAt + 'static>(
+        &self,
+        file: &FileMeta,
+        range: Range<u64>,
+        alignment: u64,
+        sink: Arc<W>,
+        progress: Progress<'_>,
+    ) -> Result<Range<u64>> {
+        let content = self.content(file).await?;
+        self.download(file, &content, range, alignment, sink, progress)
+            .await
+    }
+
+    async fn download<W: WriteAt + 'static>(
+        &self,
+        file: &FileMeta,
+        content: &FileContent,
+        range: Range<u64>,
+        alignment: u64,
+        sink: Arc<W>,
         progress: Progress<'_>,
     ) -> Result<Range<u64>> {
         let size = file.content.size;
@@ -59,25 +98,15 @@ impl<S: BlobStore> FileReader<S> {
             .div_ceil(alignment)
             .saturating_mul(alignment)
             .min(size);
-
-        let key = file.file_key();
-        let content = self.content(file).await?;
-        let path = path.to_owned();
-        let sink = blocking(move || {
-            let sink = File::create(path)?;
-            sink.set_len(size)?;
-            Ok::<_, std::io::Error>(sink)
-        })
-        .await?;
         if start >= end {
             return Ok(start..start);
         }
         content::download(
             &self.blobs,
-            &content,
-            &key,
+            content,
+            &file.file_key(),
             start..end,
-            Arc::new(sink),
+            sink,
             self.options,
             progress,
         )

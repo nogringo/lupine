@@ -15,7 +15,7 @@ use crate::items::Item;
 use crate::session::DriveSession;
 use crate::store::DriveRecord;
 use crate::testing::TestRelay;
-use crate::writer::{Edit, ItemWriter};
+use crate::writer::{Contents, Edit, ItemWriter};
 
 const OPTIONS: TransferOptions = TransferOptions {
     chunk_size: MIN_CHUNK_SIZE,
@@ -264,7 +264,10 @@ impl Device {
             created: None,
             modified: None,
         };
-        let item = self.finder.create(new, source.as_deref(), &|_| {}).await;
+        let item = self
+            .finder
+            .create(new, source.as_deref().map(Contents::File), &|_| {})
+            .await;
         item.unwrap().unwrap()
     }
 
@@ -275,7 +278,13 @@ impl Device {
             ..Edit::default()
         };
         self.finder
-            .modify(item.node, false, edit, Some(&source), &|_| {})
+            .modify(
+                item.node,
+                false,
+                edit,
+                Some(Contents::File(&source)),
+                &|_| {},
+            )
             .await
             .unwrap();
     }

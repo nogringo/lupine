@@ -26,9 +26,20 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "fs", "sync", "io-util", "time", "macros"] }
+tokio = { workspace = true, features = ["sync", "macros"] }
 unicode-normalization.workspace = true
+web-time.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+nostr-sdk = { workspace = true, features = ["aws_lc_rs", "rustls-tls-native-roots"] }
+reqwest = { workspace = true, features = ["rustls", "http2", "system-proxy"] }
+tokio = { workspace = true, features = ["rt", "fs", "io-util", "time"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+gloo-timers.workspace = true
+send_wrapper.workspace = true
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 libc.workspace = true

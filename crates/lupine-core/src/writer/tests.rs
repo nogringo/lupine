@@ -91,7 +91,7 @@ impl Setup {
             modified: Some(2),
         };
         self.writer
-            .create(new, Some(&path), &|_| {})
+            .create(new, Some(Contents::File(&path)), &|_| {})
             .await
             .unwrap()
             .unwrap()
@@ -104,7 +104,7 @@ impl Setup {
             ..Edit::default()
         };
         self.writer
-            .modify(item.node, false, edit, Some(&path), &|_| {})
+            .modify(item.node, false, edit, Some(Contents::File(&path)), &|_| {})
             .await
             .unwrap()
     }
@@ -356,7 +356,13 @@ async fn content_equal_to_the_winners_conflicts_with_nothing() {
     let path = s.file(b"same");
     let unknown_base = Edit::default();
     s.writer
-        .modify(notes.node, false, unknown_base, Some(&path), &|_| {})
+        .modify(
+            notes.node,
+            false,
+            unknown_base,
+            Some(Contents::File(&path)),
+            &|_| {},
+        )
         .await
         .unwrap();
     assert_eq!(s.heads(&notes.node).len(), 1);

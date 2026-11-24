@@ -586,6 +586,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1513,6 +1523,7 @@ dependencies = [
  "focaccia",
  "futures",
  "getrandom 0.4.3",
+ "gloo-timers",
  "hex",
  "hkdf",
  "hmac",
@@ -1524,6 +1535,7 @@ dependencies = [
  "nostr-sdk",
  "reqwest",
  "rusqlite",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha2",
@@ -1531,6 +1543,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "unicode-normalization",
+ "web-time",
  "zeroize",
 ]
 
@@ -1543,6 +1556,32 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "uniffi",
+]
+
+[[package]]
+name = "lupine-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "futures",
+ "hex",
+ "js-sys",
+ "lupine-core",
+ "nostr",
+ "rsqlite-vfs",
+ "send_wrapper",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sqlite-wasm-rs",
+ "sqlite-wasm-vfs",
+ "thiserror 2.0.21",
+ "tokio",
+ "universal-time",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]
@@ -2228,6 +2267,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "send_wrapper"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
+dependencies = [
+ "futures-core",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2235,6 +2283,17 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2364,7 +2423,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cd504cecbfe7eef649988840f9a6cb768d11085efec138f8e99f160632d867"
 dependencies = [
  "cc",
+ "js-sys",
  "rsqlite-vfs",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "sqlite-wasm-vfs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11859fbd5ce417c37e9e8c1993b55b9dc21ea7dd6452ba9097115f06e54a7e4a"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "rsqlite-vfs",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

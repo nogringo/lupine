@@ -1,0 +1,37 @@
+[package]
+name = "lupine-wasm"
+description = "WebAssembly bindings of the Lupine core for the web app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+console_error_panic_hook = "0.1"
+futures.workspace = true
+hex.workspace = true
+js-sys = "0.3"
+lupine-core.workspace = true
+nostr = { workspace = true, features = ["nip46"] }
+rsqlite-vfs = "0.2"
+send_wrapper.workspace = true
+serde.workspace = true
+serde-wasm-bindgen = "0.6"
+serde_json.workspace = true
+sqlite-wasm-rs = { version = "0.6", features = ["wasm-bindgen"] }
+sqlite-wasm-vfs = { version = "0.3", features = ["sahpool"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "macros"] }
+universal-time = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-time.workspace = true
+web-sys = { version = "0.3", features = [
+    "Blob",
+    "FileReaderSync",
+    "FileSystemReadWriteOptions",
+    "FileSystemSyncAccessHandle",
+] }

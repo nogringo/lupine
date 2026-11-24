@@ -15,8 +15,8 @@ Everything that must behave identically on every platform is written once, in Ru
 | Layer | Location | Contents |
 |---|---|---|
 | Core | `crates/lupine-core` | Formats, crypto, chunking, transfers, Blossom and Nostr clients, local state, sync engine |
-| Bindings | `crates/lupine-ffi` | UniFFI facade for Swift and Kotlin (WASM bindings for the web later) |
-| Shells | `apple/`, later one per platform | UI, file system integration, keychain, file watching, background transfer scheduling |
+| Bindings | `crates/lupine-ffi`, `crates/lupine-wasm` | UniFFI facade for Swift and Kotlin; wasm-bindgen facade for the web, which mirrors it |
+| Shells | `apple/`, `web/`, later one per platform | UI, file system integration, keychain, file watching, background transfer scheduling |
 
 Why: the format and the sync engine are where bugs lose data. Six implementations would mean six sources of corruption and a 6x6 interop matrix. Rust compiles without a runtime or GC to all six targets (WASM included), which matters inside File Provider extensions, and rust-nostr covers NIP-44, NIP-46, NIP-59 and negentropy (NIP-77).
 
@@ -33,7 +33,7 @@ The core does not own the network transport for blobs. On iOS a 50 GB upload mus
 | Android | Kotlin, Compose | `DocumentsProvider`, WorkManager |
 | Windows | to decide | Cloud Files API (placeholders) |
 | Linux | to decide | Folder sync |
-| Web | TypeScript UI, core in WASM | Streams, File System Access API |
+| Web | React and TypeScript, core in WASM in a worker | A file browser in the page, downloads through OPFS |
 
 ## Identity and keys
 
@@ -102,6 +102,18 @@ Reads go to the servers in order and move on when one fails, lacks the blob or s
 
 Both targets are sandboxed. Folder sync uses security-scoped bookmarks, so distribution through Developer ID or the Mac App Store both stay possible.
 
+## The web app
+
+- The page, in React, shows the drive. The core runs in a dedicated worker, compiled to WebAssembly by `crates/lupine-wasm`, and the page calls it through Comlink. The worker plays the Mac app's part: it opens the drive, follows it, republishes the descriptor, fills new servers and collects blobs, on the same schedule.
+- The worker owns the local database, in the origin private file system (OPFS), through a pool of sync access handles that only a dedicated worker can open. The pool has no shared memory, so the database does not use WAL: one connection, in one worker, holds it.
+- One tab at a time holds the drive, with the Web Locks API. Another tab waits, and takes over when the first one closes.
+- The drive secret stays in IndexedDB, where the Mac keeps it in the keychain. Both sit in the site's storage, so clearing the site's data forgets the drive, as signing out does.
+- Signing in takes the Mac's methods and a NIP-07 extension. Workers have no `window.nostr`, so the page relays the extension's calls. A remote signer's approval page opens from a link: browsers block a window that no click opened.
+- The page writes as the Mac's File Provider extension does: under its own device id, into the outbox, which the drive session sends.
+- Uploads read the `File` the page hands over, with `FileReaderSync`. Downloads write an OPFS file through a sync access handle, which the page then saves. They are deleted at the next launch, since the browser may still be copying one.
+- The web runs one thread: encryption runs in place in the worker, between requests that stay concurrent.
+- Blossom servers must allow requests from web pages (CORS), which BUD-01 asks of them. Browsers hide from scripts the headers a server does not expose, so feature discovery may find no BUD-13 upload or mirroring: uploads then go through `PUT /upload`, to every server. A request that fails without an answer reads the same in a browser whether the server is down or refuses web pages.
+
 ## Sync
 
 - The set of versions is the remote truth, and the union of what every relay holds converges. The local database mirrors it: negentropy (NIP-77) reconciles sets, so a version delivered late is picked up whatever its `created_at`, and a live subscription brings new ones.
@@ -166,6 +178,9 @@ A synced folder pairs a folder of the device with a drive folder: the one of the
 - Folder sync scans the whole folder at each pass. FSEvents could tell which folders to scan again.
 - Mass deletions: emptying a synced folder empties its drive folder, as two-way sync means. Other clients ask before they pass one on.
 - Folder sync on Windows and Linux: without file ids in the scan, a move shows as a deletion and a creation.
+- Key rotation on the web: the web app neither rotates the drive key nor moves its database to a key rotated elsewhere, which needs a scratch database that the OPFS pool would have to delete. Signing in again replaces the database instead, losing changes no relay took yet.
+- Downloads on the web land whole in OPFS before the browser saves them, so a file needs its size free in the site's quota. Streaming to disk would need a service worker or the File System Access API, which only Chromium has.
+- Folder sync on the web: the File System Access API could pair a local folder, in Chromium only.
 
 ## Roadmap
 
@@ -176,3 +191,4 @@ A synced folder pairs a folder of the device with a drive folder: the one of the
 5. File Provider write path (create, modify, move, delete) (done).
 6. Folder sync engine (done).
 7. Sign-in (nsec, NIP-46), onboarding, settings (done).
+8. Web app: the core in WebAssembly, sign-in (NIP-07 included), browsing, uploads, downloads and edits (done).

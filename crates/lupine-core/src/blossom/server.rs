@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use nostr::key::Keys;
 use reqwest::header::{self, HeaderMap, HeaderName};
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, Url};
@@ -15,6 +15,7 @@ use crate::blob::slice;
 use crate::crypto::random_bytes;
 use crate::error::{Error, Result};
 use crate::ids::Sha256Hash;
+use crate::task::{self, sendable};
 
 /// Chunks are at most 64 MiB, but the chunk table of a huge file is larger.
 const MAX_BLOB_LEN: u64 = 1 << 30;
@@ -58,15 +59,10 @@ impl BlossomServer {
         let domain = base.host_str().ok_or_else(invalid)?.to_owned();
         let origin = base.origin().ascii_serialization();
         base = Url::parse(&origin).map_err(|_| invalid())?;
-        let http = Client::builder()
-            .user_agent(concat!("lupine/", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(Duration::from_secs(15))
-            .read_timeout(Duration::from_secs(60))
-            .build()
-            .map_err(|e| Error::Network {
-                server: origin.clone(),
-                message: describe(&e),
-            })?;
+        let http = client().map_err(|e| Error::Network {
+            server: origin.clone(),
+            message: describe(&e),
+        })?;
         Ok(Self {
             base,
             domain,
@@ -295,13 +291,14 @@ impl BlossomServer {
         Ok(())
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn body(&self, mut response: Response, limit: u64) -> Result<Bytes> {
         let too_large = || Error::Malformed("server sent more than expected");
         let expected = response.content_length().unwrap_or(0);
         if expected > limit {
             return Err(too_large());
         }
-        let mut body = BytesMut::with_capacity(expected as usize);
+        let mut body = bytes::BytesMut::with_capacity(expected as usize);
         while let Some(chunk) = response.chunk().await.map_err(|e| self.network(&e))? {
             if (body.len() + chunk.len()) as u64 > limit {
                 return Err(too_large());
@@ -311,8 +308,24 @@ impl BlossomServer {
         Ok(body.freeze())
     }
 
+    /// Browsers hand over the body whole.
+    #[cfg(target_family = "wasm")]
+    async fn body(&self, response: Response, limit: u64) -> Result<Bytes> {
+        let too_large = || Error::Malformed("server sent more than expected");
+        if response.content_length().unwrap_or(0) > limit {
+            return Err(too_large());
+        }
+        let body = sendable(response.bytes())
+            .await
+            .map_err(|e| self.network(&e))?;
+        if body.len() as u64 > limit {
+            return Err(too_large());
+        }
+        Ok(body)
+    }
+
     async fn send(&self, request: RequestBuilder) -> Result<Response> {
-        request.send().await.map_err(|e| self.network(&e))
+        sendable(request.send()).await.map_err(|e| self.network(&e))
     }
 
     fn auth(&self, verb: Verb, hash: &Sha256Hash) -> Result<String> {
@@ -345,12 +358,27 @@ where
     loop {
         match op().await {
             Err(e) if e.is_transient() && attempt < ATTEMPTS => {
-                tokio::time::sleep(backoff(attempt)).await;
+                task::sleep(backoff(attempt)).await;
                 attempt += 1;
             }
             result => return result,
         }
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn client() -> reqwest::Result<Client> {
+    Client::builder()
+        .user_agent(concat!("lupine/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(60))
+        .build()
+}
+
+/// The browser sets the user agent and the timeouts.
+#[cfg(target_family = "wasm")]
+fn client() -> reqwest::Result<Client> {
+    Client::builder().build()
 }
 
 pub(super) fn backoff(attempt: u32) -> Duration {
@@ -376,6 +404,7 @@ fn content_range_start(headers: &HeaderMap) -> Option<u64> {
 }
 
 /// reqwest's own message rarely says what failed, its sources do.
+#[cfg(not(target_family = "wasm"))]
 fn describe(error: &reqwest::Error) -> String {
     let mut message = error.to_string();
     let mut source = std::error::Error::source(error);
@@ -385,4 +414,14 @@ fn describe(error: &reqwest::Error) -> String {
         source = cause.source();
     }
     message
+}
+
+/// Browsers do not tell a network failure from a refusal by CORS.
+#[cfg(target_family = "wasm")]
+fn describe(error: &reqwest::Error) -> String {
+    if error.is_request() {
+        "no answer, or the server refuses requests from web pages (CORS)".into()
+    } else {
+        error.to_string()
+    }
 }

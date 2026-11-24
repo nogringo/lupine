@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::pin::pin;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use futures::future::join_all;
 use futures::{Stream, StreamExt, stream};
@@ -29,6 +29,7 @@ use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::relays::{Comparison, Relays, Sent};
 use crate::replica::{Holdings, Replica, Retention};
 use crate::store::{Outgoing, Store};
+use crate::task::{self, Instant};
 use crate::tree::Tree;
 
 #[cfg(test)]
@@ -486,12 +487,12 @@ impl DriveSession {
 
             let ended = match live.as_mut() {
                 Some(events) => {
-                    let resync = pin!(tokio::time::sleep(RESYNC));
+                    let resync = pin!(task::sleep(RESYNC));
                     self.receive_live(events, &mut stop, written, resync, &mut report)
                         .await?
                 }
                 None => {
-                    let mut retry = pin!(tokio::time::sleep(RETRY));
+                    let mut retry = pin!(task::sleep(RETRY));
                     loop {
                         tokio::select! {
                             () = &mut stop => break Ended::Stopped,
@@ -539,7 +540,7 @@ impl DriveSession {
                 return Ok(Ended::Closed);
             };
             let mut batch = vec![first];
-            let mut window = pin!(tokio::time::sleep(BATCH_WINDOW));
+            let mut window = pin!(task::sleep(BATCH_WINDOW));
             while batch.len() < BATCH_MAX {
                 tokio::select! {
                     () = &mut window => break,

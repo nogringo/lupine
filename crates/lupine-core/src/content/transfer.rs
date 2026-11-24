@@ -54,7 +54,7 @@ pub async fn upload<S, R>(
 ) -> Result<FileContent>
 where
     S: BlobStore,
-    R: ReadAt + 'static,
+    R: ReadAt + ?Sized + 'static,
 {
     let size = source.size()?;
     let layout = ChunkLayout::new(size, options.chunk_size)?;

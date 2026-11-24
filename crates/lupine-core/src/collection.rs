@@ -171,7 +171,7 @@ mod tests {
     use crate::session::DriveSession;
     use crate::store::DriveRecord;
     use crate::testing::TestRelay;
-    use crate::writer::{Edit, ItemWriter, NewItem, Place};
+    use crate::writer::{Contents, Edit, ItemWriter, NewItem, Place};
 
     const CS: usize = MIN_CHUNK_SIZE as usize;
     const GRACE_MS: i64 = GRACE.as_millis() as i64;
@@ -234,7 +234,7 @@ mod tests {
             };
             let path = self.path(name, bytes);
             self.writer
-                .create(new, Some(&path), &|_| {})
+                .create(new, Some(Contents::File(&path)), &|_| {})
                 .await
                 .unwrap()
                 .unwrap()
@@ -247,7 +247,7 @@ mod tests {
             };
             let path = self.path(&format!("{}.new", item.name), bytes);
             self.writer
-                .modify(item.node, false, edit, Some(&path), &|_| {})
+                .modify(item.node, false, edit, Some(Contents::File(&path)), &|_| {})
                 .await
                 .unwrap()
         }

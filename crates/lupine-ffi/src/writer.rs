@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use lupine_core::blossom::BlossomStore;
 use lupine_core::ids::NodeId;
-use lupine_core::writer::{self as core_writer, Edit, Place};
+use lupine_core::writer::{self as core_writer, Contents, Edit, Place};
 
 use crate::CoreError;
 use crate::local::{DriveItem, LocalDrive, node};
@@ -88,7 +88,10 @@ impl ItemWriter {
             modified: item.modified,
         };
         let progress = |bytes| observer.progressed(bytes);
-        let contents = item.contents.as_deref().map(Path::new);
+        let contents = item
+            .contents
+            .as_deref()
+            .map(|path| Contents::File(Path::new(path)));
         let created = self.writer.create(new, contents, &progress);
         let created = tokio::select! {
             created = created => created?,
@@ -119,7 +122,10 @@ impl ItemWriter {
             modified: edit.modified,
         };
         let progress = |bytes| observer.progressed(bytes);
-        let contents = edit.contents.as_deref().map(Path::new);
+        let contents = edit
+            .contents
+            .as_deref()
+            .map(|path| Contents::File(Path::new(path)));
         let modified =
             self.writer
                 .modify(node(&edit.id)?, edit.is_folder, change, contents, &progress);

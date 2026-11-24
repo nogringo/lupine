@@ -1,7 +1,6 @@
 //! Node versions: the JSON a drive wraps into gift-wrap-shaped events.
 
 use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
@@ -12,6 +11,7 @@ use crate::encoding;
 use crate::error::{Error, Result};
 use crate::ids::{DeviceId, NodeId};
 use crate::names;
+use crate::task::{SystemTime, UNIX_EPOCH};
 
 pub const NODE_FORMAT_VERSION: u8 = 1;
 

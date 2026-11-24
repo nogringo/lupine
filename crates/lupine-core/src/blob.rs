@@ -4,15 +4,19 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+#[cfg(not(target_family = "wasm"))]
 use std::io;
 use std::ops::Range;
+#[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bytes::Bytes;
+#[cfg(not(target_family = "wasm"))]
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
+#[cfg(not(target_family = "wasm"))]
 use crate::crypto::random_bytes;
 use crate::error::{Error, Result};
 use crate::ids::Sha256Hash;
@@ -150,10 +154,12 @@ impl BlobStore for MemoryBlobStore {
 }
 
 /// One file per blob, named by its hash.
+#[cfg(not(target_family = "wasm"))]
 pub struct DirBlobStore {
     root: PathBuf,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl DirBlobStore {
     pub fn new(root: impl Into<PathBuf>) -> io::Result<Self> {
         let root = root.into();
@@ -166,6 +172,7 @@ impl DirBlobStore {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn not_found(hash: Sha256Hash) -> impl FnOnce(io::Error) -> Error {
     move |e| match e.kind() {
         io::ErrorKind::NotFound => Error::BlobNotFound(hash),
@@ -173,6 +180,7 @@ fn not_found(hash: Sha256Hash) -> impl FnOnce(io::Error) -> Error {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl BlobStore for DirBlobStore {
     async fn put(&self, hash: Sha256Hash, blob: Bytes) -> Result<()> {
         let path = self.path(&hash);

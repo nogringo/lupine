@@ -31,6 +31,7 @@ use crate::names;
 use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::replica::{Record, WrapState};
 use crate::store::{Store, Writer, Written};
+#[cfg(any(unix, windows))]
 use crate::task::blocking;
 use crate::tree::EntryKind;
 
@@ -73,6 +74,14 @@ pub struct Edit {
     /// Unix milliseconds. `None` keeps the current value.
     pub created: Option<i64>,
     pub modified: Option<i64>,
+}
+
+/// The content of a new file version.
+#[derive(Clone)]
+pub enum Contents<'a> {
+    /// A local file, opened when the upload starts.
+    File(&'a Path),
+    Reader(Arc<dyn ReadAt>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -208,7 +217,7 @@ impl<S: BlobStore> ItemWriter<S> {
     pub async fn create(
         &self,
         new: NewItem,
-        contents: Option<&Path>,
+        contents: Option<Contents<'_>>,
         progress: Progress<'_>,
     ) -> Result<Option<Item>> {
         let name = checked_name(&new.place.name)?;
@@ -237,7 +246,7 @@ impl<S: BlobStore> ItemWriter<S> {
         self.check_parent(parent)?;
         let file = match (new.folder, contents) {
             (true, _) => None,
-            (false, Some(path)) => Some(self.upload(path, None, progress).await?),
+            (false, Some(contents)) => Some(self.upload(contents, None, progress).await?),
             (false, None) if new.may_exist => return Ok(None),
             (false, None) => return Err(Error::Malformed("a new file needs its content")),
         };
@@ -280,7 +289,7 @@ impl<S: BlobStore> ItemWriter<S> {
         node: NodeId,
         folder: bool,
         edit: Edit,
-        contents: Option<&Path>,
+        contents: Option<Contents<'_>>,
         progress: Progress<'_>,
     ) -> Result<Item> {
         let place = edit
@@ -297,9 +306,9 @@ impl<S: BlobStore> ItemWriter<S> {
             self.check_parent(place.parent)?;
         }
         let file = match contents {
-            Some(path) if !folder => {
+            Some(contents) if !folder => {
                 let base = self.base_file(&node)?;
-                Some(self.upload(path, base.as_ref(), progress).await?)
+                Some(self.upload(contents, base.as_ref(), progress).await?)
             }
             _ => None,
         };
@@ -494,12 +503,20 @@ impl<S: BlobStore> ItemWriter<S> {
 
     async fn upload(
         &self,
-        path: &Path,
+        contents: Contents<'_>,
         base: Option<&FileMeta>,
         progress: Progress<'_>,
     ) -> Result<Uploaded> {
-        let path = path.to_owned();
-        let source = Arc::new(blocking(move || std::fs::File::open(path)).await?);
+        let source: Arc<dyn ReadAt> = match contents {
+            #[cfg(any(unix, windows))]
+            Contents::File(path) => {
+                let path = path.to_owned();
+                Arc::new(blocking(move || std::fs::File::open(path)).await?)
+            }
+            #[cfg(not(any(unix, windows)))]
+            Contents::File(_) => return Err(Error::Malformed("no local files on this platform")),
+            Contents::Reader(reader) => reader,
+        };
         let size = source.size()?;
         let previous = match base {
             Some(file) => {
