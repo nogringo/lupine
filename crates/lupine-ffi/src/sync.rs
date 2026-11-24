@@ -18,6 +18,8 @@ pub trait SyncObserver: Send + Sync {
     fn syncing(&self);
     /// `failed` holds each relay that could not be synced, with the reason.
     fn synced(&self, failed: Vec<String>);
+    /// A compaction deleted `wraps` wraps from the relays.
+    fn compacted(&self, wraps: u64);
     /// The File Provider extension should enumerate changes.
     fn items_changed(&self);
 }
@@ -61,6 +63,7 @@ impl DriveSync {
                         .map(|(relay, e)| format!("{relay}: {e}"))
                         .collect(),
                 ),
+                Followed::Compacted(wraps) => observer.compacted(wraps as u64),
                 Followed::ItemsChanged => observer.items_changed(),
             })
             .await;

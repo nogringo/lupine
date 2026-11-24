@@ -500,6 +500,47 @@ async fn following_reports_changes_until_stopped() {
     following.await.unwrap().unwrap();
 }
 
+#[tokio::test]
+async fn following_compacts_once_every_relay_is_synced() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let retention = Retention {
+        history: Duration::ZERO,
+        ..Retention::default()
+    };
+    let mut follower = device(&drive, &[&a]).await.with_retention(retention);
+    let (node, draft) = follower.create_folder(None, "Draft").await.unwrap();
+    tick().await;
+    follower.move_to(node, None, "Final").await.unwrap();
+    tick().await;
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let (seen, mut compactions) = tokio::sync::mpsc::unbounded_channel();
+
+    let following = tokio::spawn(async move {
+        follower
+            .follow(
+                async {
+                    stopped.await.ok();
+                },
+                &Notify::new(),
+                |event| {
+                    if let Followed::Compacted(wraps) = event {
+                        seen.send(wraps).unwrap();
+                    }
+                },
+            )
+            .await
+    });
+    let compacted = tokio::time::timeout(Duration::from_secs(5), compactions.recv())
+        .await
+        .expect("the session compacts");
+    assert_eq!(compacted, Some(1));
+    assert!(!a.holds(draft.wrap).await);
+
+    stop.send(()).unwrap();
+    following.await.unwrap().unwrap();
+}
+
 fn extension(drive: &DriveKeys, store: &Arc<Store>) -> ItemWriter<MemoryBlobStore> {
     let keys = DriveKeys::from_secret(drive.keys().secret_key().clone());
     ItemWriter::new(Arc::clone(store), keys, MemoryBlobStore::new()).unwrap()

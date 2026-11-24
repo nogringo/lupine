@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::pin::pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::future::join_all;
 use futures::{Stream, StreamExt, stream};
@@ -38,6 +38,9 @@ const SEND_CONCURRENCY: usize = 16;
 const SETTLE_PASSES: usize = 3;
 /// A full sync while following, for what the live subscription missed.
 pub const RESYNC: Duration = Duration::from_secs(10 * 60);
+/// While following, after the first full sync. The history window counts
+/// in days, so compacting more often would only find junk.
+pub const COMPACTION: Duration = Duration::from_secs(24 * 60 * 60);
 /// Live events that arrive this close together are stored together.
 const BATCH_WINDOW: Duration = Duration::from_millis(250);
 const BATCH_MAX: usize = 1000;
@@ -71,6 +74,8 @@ pub struct Published {
 pub enum Followed<'a> {
     Syncing,
     Synced(&'a SyncReport),
+    /// Wraps deleted by a compaction.
+    Compacted(usize),
     /// The items shown changed: file system integrations should look.
     ItemsChanged,
 }
@@ -88,6 +93,7 @@ pub struct DriveSession {
     synced: bool,
     items: HashMap<NodeId, Item>,
     items_changed: bool,
+    compacted: Option<Instant>,
 }
 
 enum Ended {
@@ -121,6 +127,7 @@ impl DriveSession {
             synced,
             items,
             items_changed: false,
+            compacted: None,
         };
         // The items follow the rules of this version of the core.
         session.persist(true)?;
@@ -402,8 +409,9 @@ impl DriveSession {
 
     /// Keeps the local database up to date until `stop` completes: follows
     /// the relays live, and syncs fully at the start and every [`RESYNC`].
-    /// Takes in what the extension wrote whenever `written` is notified.
-    /// Fails only when the local database does.
+    /// Compacts once every drive relay was synced, then every
+    /// [`COMPACTION`]. Takes in what the extension wrote whenever `written`
+    /// is notified. Fails only when the local database does.
     pub async fn follow(
         &mut self,
         stop: impl Future<Output = ()>,
@@ -419,6 +427,10 @@ impl DriveSession {
             report(Followed::Syncing);
             let synced = self.sync().await?;
             report(Followed::Synced(&synced));
+            let due = self.compacted.is_none_or(|at| at.elapsed() >= COMPACTION);
+            if self.complete && due {
+                report(Followed::Compacted(self.compact().await?));
+            }
             self.report_items(&mut report);
 
             let ended = match live.as_mut() {
@@ -705,6 +717,7 @@ impl DriveSession {
         if !self.complete {
             return Ok(0);
         }
+        self.compacted = Some(Instant::now());
         let doomed = self.replica.compaction(unix_millis(), &self.retention);
         let deletions = self.keys.deletions(doomed.iter().copied())?;
         // Kept even if no relay takes them: the next sync sends them.

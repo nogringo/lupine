@@ -208,6 +208,12 @@ final class AppModel {
         }
     }
 
+    fileprivate func compacted(_ wraps: UInt64) {
+        if wraps > 0 {
+            logger.info("Compaction deleted \(wraps) wraps")
+        }
+    }
+
     /// The drive changed: Finder and the synced folders should look.
     fileprivate func driveChanged() {
         signalFinder()
@@ -276,6 +282,10 @@ private final class SyncReporter: SyncObserver {
             $0.folders?.changed()
             $0.keepDescriptor()
         }
+    }
+
+    func compacted(wraps: UInt64) {
+        onMain { $0.compacted(wraps) }
     }
 
     func itemsChanged() {
