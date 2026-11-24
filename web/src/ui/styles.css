@@ -745,6 +745,17 @@ dialog.wide {
   width: min(40rem, calc(100vw - 2rem));
 }
 
+dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog > .stack {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 dialog::backdrop {
   background: rgb(20 18 42 / 45%);
 }
@@ -787,6 +798,16 @@ dialog .buttons {
   background: var(--petal);
 }
 
+.settings {
+  overflow-y: auto;
+  margin-inline: -1.4rem;
+  padding-inline: 1.4rem;
+}
+
+.settings p {
+  overflow-wrap: anywhere;
+}
+
 .settings section {
   display: grid;
   gap: 0.6rem;
@@ -800,7 +821,11 @@ dialog .buttons {
 }
 
 .settings h3 {
-  font-size: 1rem;
+  font-size: 1.1rem;
+}
+
+.settings .field > span {
+  font-weight: 500;
 }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { lupine } from "../lib/client";
 import type { OpenDrive } from "../lib/state";
 import { ConfirmDialog, Copy, Modal, useAction } from "./dialogs";
@@ -11,6 +11,8 @@ export function Settings({ drive, onClose }: { drive: OpenDrive; onClose: () => 
   const [relays, setRelays] = useState(info.relays.join("\n"));
   const [servers, setServers] = useState(info.servers.join("\n"));
   const [signingOut, setSigningOut] = useState(false);
+  const done = useRef<HTMLButtonElement>(null);
+  useEffect(() => done.current?.focus(), [signingOut]);
   const lists = useAction();
   const lines = (text: string) => text.split("\n").map((line) => line.trim()).filter(Boolean);
   const listsChanged = relays !== info.relays.join("\n") || servers !== info.servers.join("\n");
@@ -71,7 +73,7 @@ export function Settings({ drive, onClose }: { drive: OpenDrive; onClose: () => 
         <section>
           <h3>History</h3>
           <label className="field">
-            <span className="muted">Replaced versions stay on the relays for</span>
+            <span>Replaced versions stay on the relays for</span>
             <select
               className="input"
               value={drive.historyDays}
@@ -127,7 +129,7 @@ export function Settings({ drive, onClose }: { drive: OpenDrive; onClose: () => 
         </section>
       </div>
       <div className="buttons">
-        <button className="button primary" onClick={onClose}>
+        <button ref={done} className="button primary" onClick={onClose}>
           Done
         </button>
       </div>
