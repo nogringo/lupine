@@ -313,7 +313,7 @@ async fn a_new_device_finds_the_drive_on_the_users_relays() {
     let account = Account::connect(Arc::clone(&user), [user_relay.url.clone()])
         .await
         .unwrap();
-    let servers = ["https://blossom.example.com".to_owned()];
+    let servers = [crate::testing::blossom_server(None).await];
     let (created, lists) = account
         .create_drive("Lupine", std::slice::from_ref(&drive_relay.url), &servers)
         .await

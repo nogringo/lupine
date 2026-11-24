@@ -24,6 +24,7 @@ hkdf = "0.13"
 hmac = "0.13"
 libc = "0.2"
 nostr = { version = "0.45", default-features = false, features = ["std", "nip44", "os-rng"] }
+nostr-connect = "0.45"
 nostr-sdk = { version = "0.45", default-features = false, features = ["aws_lc_rs", "rustls-tls-native-roots"] }
 nostr-database = "0.45"
 nostr-memory = "0.45"

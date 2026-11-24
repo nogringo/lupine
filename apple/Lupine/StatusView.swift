@@ -2,30 +2,24 @@ import SwiftUI
 
 struct StatusView: View {
     let model: AppModel
-    @State private var recoveryKey = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Lupine").font(.headline)
-            LabeledContent("Core", value: model.coreVersion)
-            LabeledContent("Finder", value: domainLabel)
-            LabeledContent("Drive", value: driveLabel)
-            if model.canOpenDrive {
-                SecureField("Recovery key", text: $recoveryKey)
-                Button("Open Drive") {
-                    let key = recoveryKey
-                    recoveryKey = ""
-                    Task { await model.importRecoveryKey(key) }
-                }
-                .disabled(recoveryKey.isEmpty)
+            Text(model.info?.name ?? "Lupine").font(.headline)
+            if model.hasDrive {
+                LabeledContent("Finder", value: domainLabel)
+                LabeledContent("Drive", value: driveLabel)
+            } else {
+                Text("Sign in to open your drive, or to create one.")
+                    .foregroundStyle(.secondary)
+                Button("Sign In...") { model.showOnboarding() }
             }
             if let folders = model.folders {
                 Divider()
                 FoldersSection(folders: folders)
             }
             Divider()
-            LabeledContent("Self-test", value: model.selfTestResult ?? "Running")
-            Divider()
+            Button("Settings...") { model.showSettings() }
             Button("Quit Lupine") { NSApplication.shared.terminate(nil) }
         }
         .padding()
@@ -34,6 +28,7 @@ struct StatusView: View {
 
     private var domainLabel: String {
         switch model.domainState {
+        case .none: "Off"
         case .registering: "Registering"
         case .registered: "Ready"
         case .failed(let message): message

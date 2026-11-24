@@ -13,6 +13,13 @@ enum DriveKeychain {
         try check(SecItemAdd(item as CFDictionary, nil))
     }
 
+    static func delete(drive: String) throws {
+        let status = SecItemDelete(baseQuery(drive: drive) as CFDictionary)
+        if status != errSecItemNotFound {
+            try check(status)
+        }
+    }
+
     static func secret(drive: String) throws -> String? {
         var query = baseQuery(drive: drive)
         query[kSecReturnData as String] = true

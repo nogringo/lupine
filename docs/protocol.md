@@ -55,7 +55,7 @@ Regular event signed by the user's identity key. One is written when the drive i
 
 Among descriptors with the same `id`, the current one has the highest `epoch`, then the latest `created_at`. The client that publishes a new descriptor deletes the older ones with NIP-09.
 
-Descriptors go to the user's write relays (NIP-65) and to the drive relays. A device keeps the descriptor event it read and republishes it, unchanged, to any of these relays that lacks it. The descriptor is lost only if every relay and every device loses it.
+Descriptors go to the user's write relays (NIP-65) and to the drive relays. The write relays are those that the user's latest kind 10002 marks `write` or leaves unmarked. A user who publishes no kind 10002 keeps descriptors on `wss://relay.primal.net` and `wss://relay.ditto.pub`, so that every client looks in the same place. A device keeps the descriptor event it read and republishes it, unchanged, to any of these relays that lacks it. The descriptor is lost only if every relay and every device loses it.
 
 Deleting a drive ends with a NIP-09 deletion (kind 5) of its descriptors.
 

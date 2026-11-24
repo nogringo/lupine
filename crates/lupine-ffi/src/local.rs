@@ -9,10 +9,11 @@ use lupine_core::drive::DriveKeys;
 use lupine_core::ids::NodeId;
 use lupine_core::items::Item;
 use lupine_core::relays::Relays;
-use lupine_core::store::{DriveRecord, Store};
+use lupine_core::store::{DescriptorRecord, DriveRecord, Store};
 use nostr::key::SecretKey;
 
 use crate::CoreError;
+use crate::account::npub;
 
 #[derive(uniffi::Object)]
 pub struct LocalDrive {
@@ -22,6 +23,12 @@ pub struct LocalDrive {
 #[derive(Debug, uniffi::Record)]
 pub struct DriveInfo {
     pub id: String,
+    /// `None` for a drive opened with a recovery key.
+    pub name: Option<String>,
+    /// The drive key, as an npub: paid relays and servers must allow it.
+    pub drive_key: String,
+    /// The npub this device signed in with, `None` with a recovery key.
+    pub user: Option<String>,
     pub relays: Vec<String>,
     pub servers: Vec<String>,
 }
@@ -71,6 +78,7 @@ pub struct ImportedDrive {
     pub id: String,
     /// The drive secret, hex, for the keychain.
     pub secret: String,
+    pub recovery_key: String,
 }
 
 /// The drive set up in the database at `path`, `None` when there is none.
@@ -104,8 +112,7 @@ pub async fn import_recovery_key(
     if lists.servers.is_empty() {
         return Err(CoreError::Check("the drive lists no Blossom server".into()));
     }
-    let store = Store::open(path)?;
-    store.set_drive(&DriveRecord {
+    let record = DriveRecord {
         id: key.id,
         pubkey: keys.public_key(),
         epoch: key.epoch,
@@ -115,22 +122,73 @@ pub async fn import_recovery_key(
             lists.relays
         },
         servers: lists.servers,
-    })?;
+    };
+    set_up(&path, &record, None)?;
     Ok(ImportedDrive {
         id: key.id.to_hex(),
         secret: key.secret.to_secret_hex(),
+        recovery_key: key.encode(),
     })
+}
+
+/// Sets up the database at `path` for `drive`. A database that holds
+/// another drive, whose key this device no longer has, is replaced.
+pub(crate) fn set_up(
+    path: &str,
+    drive: &DriveRecord,
+    descriptor: Option<&DescriptorRecord>,
+) -> Result<(), CoreError> {
+    let mut store = Store::open(path)?;
+    if store.drive()?.is_some_and(|held| held.id != drive.id) {
+        drop(store);
+        for suffix in ["", "-wal", "-shm"] {
+            match std::fs::remove_file(format!("{path}{suffix}")) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(CoreError::Core(e.to_string()));
+                }
+                _ => {}
+            }
+        }
+        store = Store::open(path)?;
+    }
+    store.set_drive(drive)?;
+    if let Some(descriptor) = descriptor {
+        store.set_descriptor(descriptor)?;
+    }
+    Ok(())
 }
 
 #[uniffi::export]
 impl LocalDrive {
     pub fn info(&self) -> Result<DriveInfo, CoreError> {
         let drive = self.record()?;
+        let descriptor = self.store.descriptor()?;
         Ok(DriveInfo {
             id: drive.id.to_hex(),
+            name: descriptor.as_ref().map(|d| d.name.clone()),
+            drive_key: npub(&drive.pubkey),
+            user: descriptor.as_ref().map(|d| npub(&d.event.pubkey)),
             relays: drive.relays.iter().map(ToString::to_string).collect(),
             servers: drive.servers,
         })
+    }
+
+    /// Full access to the drive without the user's key, for safekeeping.
+    pub fn recovery_key(&self, secret: String) -> Result<String, CoreError> {
+        let keys = self.keys(&secret)?;
+        let drive = self.record()?;
+        let key = RecoveryKey {
+            secret: keys.keys().secret_key().clone(),
+            id: drive.id,
+            epoch: drive.epoch,
+            relays: drive.relays,
+        };
+        Ok(key.encode())
+    }
+
+    /// Changes from Finder and folder sync that no relay took yet.
+    pub fn unsent(&self) -> Result<u64, CoreError> {
+        Ok(self.store.unsent()?)
     }
 
     pub fn item(&self, id: String) -> Result<DriveItem, CoreError> {

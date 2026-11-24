@@ -1,12 +1,15 @@
+import AppKit
 import FileProvider
 import LupineCore
 import Observation
+import ServiceManagement
 import os
 
 @MainActor
 @Observable
 final class AppModel {
     enum DomainState: Equatable {
+        case none
         case registering
         case registered
         case failed(String)
@@ -21,44 +24,129 @@ final class AppModel {
     }
 
     let coreVersion = LupineCore.coreVersion()
+    let windows = Windows()
     private let logger = Logger(subsystem: "ovh.uid.lupine", category: "app")
     private let domain = NSFileProviderDomain(
         identifier: NSFileProviderDomainIdentifier(SharedContainer.domainIdentifier),
         displayName: "Lupine"
     )
-    private(set) var domainState = DomainState.registering
+    private(set) var domainState = DomainState.none
     private(set) var driveState = DriveState.none
     private(set) var selfTestResult: String?
     private(set) var folders: SyncedFolders?
+    private(set) var info: DriveInfo?
+    private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
+    private(set) var loginItemNeedsApproval = SMAppService.mainApp.status == .requiresApproval
+    private var local: LocalDrive?
     private var sync: DriveSync?
+    private var syncing: Task<Void, Never>?
     private var outbox: OutboxSignal.Listener?
+    private var keptDescriptor = false
 
-    var canOpenDrive: Bool {
-        switch driveState {
-        case .none, .failed: sync == nil
-        default: false
-        }
+    var hasDrive: Bool {
+        local != nil
     }
 
     init() {
         Task {
-            await registerDomain()
             await openDrive()
+            if local == nil {
+                showOnboarding()
+            }
             await runSelfTest()
         }
     }
 
-    func importRecoveryKey(_ recoveryKey: String) async {
-        driveState = .opening
-        do {
-            let path = try SharedContainer.databaseURL().path(percentEncoded: false)
-            let imported = try await LupineCore.importRecoveryKey(path: path, recoveryKey: recoveryKey)
-            try DriveKeychain.store(secret: imported.secret, drive: imported.id)
-        } catch {
-            fail("Import failed", error)
-            return
+    func showOnboarding() {
+        guard local == nil else { return }
+        let onboarding = Onboarding(app: self)
+        windows.show(.onboarding, title: "Lupine", onClose: { onboarding.cancel() }) {
+            OnboardingView(onboarding: onboarding)
         }
+    }
+
+    func showSettings() {
+        refreshLoginItem()
+        windows.show(.settings, title: "Lupine Settings") {
+            SettingsView(model: self)
+        }
+    }
+
+    func importRecoveryKey(_ recoveryKey: String) async throws {
+        let path = try SharedContainer.databaseURL().path(percentEncoded: false)
+        try await setUp(try await LupineCore.importRecoveryKey(path: path, recoveryKey: recoveryKey))
+    }
+
+    /// The database is set up for `drive`: keep its secret and open it.
+    func setUp(_ drive: ImportedDrive) async throws {
+        try DriveKeychain.store(secret: drive.secret, drive: drive.id)
         await openDrive()
+    }
+
+    func recoveryKey() -> String? {
+        do {
+            guard let local, let id = info?.id, let secret = try DriveKeychain.secret(drive: id) else {
+                return nil
+            }
+            return try local.recoveryKey(secret: secret)
+        } catch {
+            logger.error("Reading the recovery key failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    func unsentChanges() -> UInt64 {
+        (try? local?.unsent()) ?? 0
+    }
+
+    func setOpenAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            logger.error("Changing the login item failed: \(error.localizedDescription, privacy: .public)")
+        }
+        refreshLoginItem()
+    }
+
+    /// Removes the drive from this Mac: Finder's copy of it, the synced
+    /// folder pairs, the local database and the drive secret. Files Finder
+    /// had not handed over yet are kept aside and shown.
+    func signOut() async {
+        guard let local else { return }
+        let id = try? local.info().id
+        sync?.stop()
+        await syncing?.value
+        await folders?.stop()
+        outbox = nil
+        sync = nil
+        syncing = nil
+        folders = nil
+        self.local = nil
+        info = nil
+        keptDescriptor = false
+        driveState = .none
+        do {
+            if let kept = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData) {
+                NSWorkspace.shared.activateFileViewerSelecting([kept])
+            }
+        } catch {
+            logger.error("Removing the Finder location failed: \(error.localizedDescription, privacy: .public)")
+        }
+        domainState = .none
+        do {
+            if let id {
+                try DriveKeychain.delete(drive: id)
+            }
+            try SharedContainer.removeDatabase()
+        } catch {
+            logger.error("Forgetting the drive failed: \(error.localizedDescription, privacy: .public)")
+        }
+        windows.close(.settings)
+        showOnboarding()
     }
 
     private func openDrive() async {
@@ -70,7 +158,10 @@ final class AppModel {
                 driveState = .none
                 return
             }
+            self.local = local
+            info = try local.info()
             driveState = .opening
+            await registerDomain()
             let sync = try await openDriveSync(drive: local, secret: secret)
             self.sync = sync
             let folderSync = try openFolderSync(drive: local, secret: secret, trash: Trasher())
@@ -80,7 +171,7 @@ final class AppModel {
             }
             signalFinder()
             let reporter = SyncReporter(model: self)
-            Task {
+            syncing = Task {
                 do {
                     try await sync.run(observer: reporter)
                 } catch {
@@ -104,6 +195,19 @@ final class AppModel {
         driveState = state
     }
 
+    /// Once per launch, after the relays answered.
+    fileprivate func keepDescriptor() {
+        guard !keptDescriptor, let sync else { return }
+        keptDescriptor = true
+        Task { [logger] in
+            do {
+                _ = try await sync.keepDescriptor()
+            } catch {
+                logger.error("Republishing the descriptor failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     /// The drive changed: Finder and the synced folders should look.
     fileprivate func driveChanged() {
         signalFinder()
@@ -123,7 +227,14 @@ final class AppModel {
         logger.error("\(context, privacy: .public): \(error.localizedDescription, privacy: .public)")
     }
 
+    private func refreshLoginItem() {
+        let status = SMAppService.mainApp.status
+        opensAtLogin = status == .enabled
+        loginItemNeedsApproval = status == .requiresApproval
+    }
+
     private func registerDomain() async {
+        domainState = .registering
         do {
             try await NSFileProviderManager.add(domain)
             domainState = .registered
@@ -163,6 +274,7 @@ private final class SyncReporter: SyncObserver {
             $0.report(.synced(failedRelays: failed.count))
             // Folder sync waits for the first full sync, which may change no item.
             $0.folders?.changed()
+            $0.keepDescriptor()
         }
     }
 

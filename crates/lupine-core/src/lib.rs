@@ -13,6 +13,7 @@ pub mod error;
 pub mod fetch;
 pub mod folder_sync;
 pub mod graph;
+pub mod identity;
 pub mod ids;
 pub mod io;
 pub mod items;

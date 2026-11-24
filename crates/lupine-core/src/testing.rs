@@ -146,3 +146,14 @@ impl TestRelay {
         self.store.count(filter).await.unwrap()
     }
 }
+
+/// A Blossom server that answers every request with `status`, 200 by
+/// default: enough for the upload checks of tests that never upload.
+pub(crate) async fn blossom_server(status: Option<u16>) -> String {
+    let status = axum::http::StatusCode::from_u16(status.unwrap_or(200)).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let app = axum::Router::new().fallback(move || async move { status });
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    url
+}

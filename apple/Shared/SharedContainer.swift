@@ -20,6 +20,15 @@ enum SharedContainer {
         return drives.appending(path: "\(domain).sqlite")
     }
 
+    static func removeDatabase(domain: String = domainIdentifier) throws {
+        let path = try databaseURL(domain: domain).path(percentEncoded: false)
+        for suffix in ["", "-wal", "-shm"] {
+            do {
+                try FileManager.default.removeItem(atPath: path + suffix)
+            } catch CocoaError.fileNoSuchFile {}
+        }
+    }
+
     private static func infoString(_ key: String) -> String {
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
             fatalError("\(key) is missing from Info.plist")

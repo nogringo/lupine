@@ -32,7 +32,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Migration `n` takes the schema from version `n` to `n + 1`. A new
 /// database runs them all.
-const MIGRATIONS: [&str; 3] = [SCHEMA_V1, MIGRATION_V2, MIGRATION_V3];
+const MIGRATIONS: [&str; 4] = [SCHEMA_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
 
 const SCHEMA_V1: &str = "
 CREATE TABLE drive (
@@ -131,6 +131,14 @@ CREATE TABLE synced (
 ) WITHOUT ROWID;
 ";
 
+/// Sign-in: the descriptor this device read, to republish it, and the
+/// user's relays it came from.
+const MIGRATION_V4: &str = "
+ALTER TABLE drive ADD COLUMN descriptor TEXT;
+ALTER TABLE drive ADD COLUMN name TEXT;
+ALTER TABLE drive ADD COLUMN user_relays TEXT;
+";
+
 const STATE_VERSION: i64 = 0;
 const STATE_UNREADABLE: i64 = 1;
 const STATE_JUNK: i64 = 2;
@@ -183,6 +191,16 @@ pub struct DriveRecord {
     pub relays: Vec<RelayUrl>,
     /// Most trusted first.
     pub servers: Vec<String>,
+}
+
+/// The descriptor a device signed in with. A drive opened with a recovery
+/// key has none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DescriptorRecord {
+    pub event: Event,
+    pub name: String,
+    /// The user's write relays, where every device republishes it.
+    pub user_relays: Vec<RelayUrl>,
 }
 
 /// Where a file system integration stands in the change log. Anchors from
@@ -339,6 +357,57 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn set_descriptor(&self, descriptor: &DescriptorRecord) -> Result<()> {
+        let updated = self.lock().execute(
+            "UPDATE drive SET descriptor = ?1, name = ?2, user_relays = ?3",
+            params![
+                descriptor.event.as_json(),
+                descriptor.name,
+                serde_json::to_string(&descriptor.user_relays)?,
+            ],
+        )?;
+        if updated == 0 {
+            return Err(Error::Malformed("no drive in the local database"));
+        }
+        Ok(())
+    }
+
+    pub fn descriptor(&self) -> Result<Option<DescriptorRecord>> {
+        let row = self
+            .lock()
+            .query_row(
+                "SELECT descriptor, name, user_relays FROM drive WHERE descriptor IS NOT NULL",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((event, name, user_relays)) = row else {
+            return Ok(None);
+        };
+        Ok(Some(DescriptorRecord {
+            event: Event::from_json(event).map_err(|e| Error::Nostr(e.to_string()))?,
+            name,
+            user_relays: serde_json::from_str(&user_relays)?,
+        }))
+    }
+
+    /// Wraps the extension and folder sync wrote that no relay took yet.
+    pub fn unsent(&self) -> Result<u64> {
+        let count: i64 = self.lock().query_row(
+            "SELECT count(*) FROM outbox JOIN wraps ON wraps.id = outbox.wrap
+             WHERE wraps.event IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as u64)
     }
 
     /// The session's clock, and whether every drive relay was synced once.
@@ -853,6 +922,24 @@ mod tests {
         assert_ne!(extension.device, clock.device);
         let folders = reopened.clock(Writer::Folders).unwrap();
         assert_ne!(folders.device, extension.device);
+    }
+
+    #[tokio::test]
+    async fn the_descriptor_signed_in_with_is_kept() {
+        let store = Store::memory().unwrap();
+        let user = Keys::generate();
+        let descriptor = crate::descriptor::Descriptor::generate("Lupine");
+        let kept = DescriptorRecord {
+            event: descriptor.seal(&user).await.unwrap(),
+            name: descriptor.name.clone(),
+            user_relays: vec![RelayUrl::parse("wss://user.example.com").unwrap()],
+        };
+        assert!(store.set_descriptor(&kept).is_err(), "no drive yet");
+        store.set_drive(&record(1)).unwrap();
+        assert_eq!(store.descriptor().unwrap(), None);
+        store.set_descriptor(&kept).unwrap();
+        assert_eq!(store.descriptor().unwrap(), Some(kept));
+        assert_eq!(store.unsent().unwrap(), 0);
     }
 
     #[test]

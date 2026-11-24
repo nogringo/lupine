@@ -3,7 +3,10 @@
 
 use std::sync::Arc;
 
+use lupine_core::account;
+use lupine_core::drive::DriveKeys;
 use lupine_core::session::{DriveSession, Followed};
+use lupine_core::store::Store;
 use tokio::sync::{Mutex, Notify};
 
 use crate::CoreError;
@@ -22,6 +25,8 @@ pub trait SyncObserver: Send + Sync {
 #[derive(uniffi::Object)]
 pub struct DriveSync {
     session: Mutex<DriveSession>,
+    store: Arc<Store>,
+    keys: DriveKeys,
     stop: Cancellation,
     written: Notify,
 }
@@ -31,10 +36,11 @@ pub async fn open_drive_sync(
     drive: Arc<LocalDrive>,
     secret: String,
 ) -> Result<Arc<DriveSync>, CoreError> {
-    let keys = drive.keys(&secret)?;
-    let session = DriveSession::open(Arc::clone(&drive.store), keys).await?;
+    let session = DriveSession::open(Arc::clone(&drive.store), drive.keys(&secret)?).await?;
     Ok(Arc::new(DriveSync {
         session: Mutex::new(session),
+        store: Arc::clone(&drive.store),
+        keys: drive.keys(&secret)?,
         stop: Cancellation::default(),
         written: Notify::new(),
     }))
@@ -64,6 +70,12 @@ impl DriveSync {
 
     pub fn stop(&self) {
         self.stop.cancel();
+    }
+
+    /// Republishes the descriptor this device signed in with to the relays
+    /// that lack it. Returns how many took it.
+    pub async fn keep_descriptor(&self) -> Result<u32, CoreError> {
+        Ok(account::keep_descriptor(&self.store, &self.keys).await? as u32)
     }
 
     /// The File Provider extension wrote to the local database: take it in

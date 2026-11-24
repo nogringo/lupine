@@ -36,6 +36,7 @@ final class SyncedFolders {
     private let logger = Logger(subsystem: "ovh.uid.lupine", category: "folders")
     private var watchers: [Int64: FolderWatcher] = [:]
     private var accessed: [Int64: URL] = [:]
+    private var running: Task<Void, Never>?
 
     init(sync: FolderSync, domain: NSFileProviderDomain, wrote: @escaping @MainActor () -> Void) {
         self.sync = sync
@@ -54,13 +55,24 @@ final class SyncedFolders {
         }
         let sync = sync
         let reporter = FolderReporter(folders: self)
-        Task {
+        running = Task {
             do {
                 try await sync.run(observer: reporter)
             } catch {
                 self.fail("Folder sync stopped", error)
             }
         }
+    }
+
+    /// Stops syncing and watching every folder.
+    func stop() async {
+        sync.stop()
+        await running?.value
+        watchers.removeAll()
+        for url in accessed.values {
+            url.stopAccessingSecurityScopedResource()
+        }
+        accessed.removeAll()
     }
 
     /// The drive changed: what it holds may need to reach the folders.

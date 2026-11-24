@@ -28,6 +28,10 @@ struct Behavior {
     ignores_ranges: bool,
     get_needs_auth: bool,
     corrupts: bool,
+    /// BUD-06 `HEAD /upload`.
+    preflight: bool,
+    /// Refuses what is not an image, as media hosts do.
+    media_only: bool,
 }
 
 const MODERN: Behavior = Behavior {
@@ -36,6 +40,8 @@ const MODERN: Behavior = Behavior {
     ignores_ranges: false,
     get_needs_auth: false,
     corrupts: false,
+    preflight: true,
+    media_only: false,
 };
 
 /// Only BUD-02 `PUT /upload`, like most servers in November 2026.
@@ -43,6 +49,7 @@ const LEGACY: Behavior = Behavior {
     put: false,
     mirror: false,
     ignores_ranges: true,
+    preflight: false,
     ..MODERN
 };
 
@@ -208,6 +215,18 @@ impl Fake {
         }
     }
 
+    fn preflight(&self, headers: &HeaderMap) -> Response {
+        if !self.authorized(headers, "upload", None) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        let kind = headers.get("X-Content-Type").and_then(|v| v.to_str().ok());
+        if self.behavior.media_only && !kind.is_some_and(|k| k.starts_with("image/")) {
+            let reason = [("X-Reason", "only media files are accepted")];
+            return (StatusCode::UNSUPPORTED_MEDIA_TYPE, reason).into_response();
+        }
+        StatusCode::OK.into_response()
+    }
+
     fn options(&self, path: &str) -> Response {
         let methods = if path == "upload" {
             "HEAD, PUT, OPTIONS".to_owned()
@@ -246,6 +265,7 @@ async fn handle(
         _ if failing => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         (&Method::OPTIONS, path, _) => fake.options(path),
         (&Method::PUT, "upload", _) => fake.store(&headers, None, body),
+        (&Method::HEAD, "upload", _) if fake.behavior.preflight => fake.preflight(&headers),
         (_, _, None) => StatusCode::NOT_FOUND.into_response(),
         (&Method::GET | &Method::HEAD, _, Some(hash)) => fake.serve(&method, &headers, hash),
         (&Method::PUT, _, Some(hash)) if fake.behavior.put => {
@@ -540,4 +560,32 @@ async fn live_servers() {
             assert!(!kept, "{} kept {}", server.url(), chunk.blob);
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn upload_checks_spot_media_hosts() {
+    let media = Behavior {
+        media_only: true,
+        ..MODERN
+    };
+    let (fakes, store) = setup(&[MODERN, LEGACY, media]).await;
+    let servers = store.servers();
+    servers[0].check_upload(8 << 20).await.unwrap();
+    servers[1].check_upload(8 << 20).await.unwrap();
+    let refused = servers[2].check_upload(8 << 20).await.unwrap_err();
+    assert!(
+        matches!(
+            &refused,
+            crate::Error::Http {
+                status: 415,
+                reason: Some(_),
+                ..
+            }
+        ),
+        "{refused}"
+    );
+    assert_eq!(fakes[1].count("HEAD /upload 404"), 1, "no BUD-06");
+
+    let unknown_key = BlossomServer::new(&fakes[0].origin, Keys::generate()).unwrap();
+    unknown_key.check_upload(8 << 20).await.unwrap();
 }

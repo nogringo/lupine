@@ -17,7 +17,8 @@ getrandom.workspace = true
 hex.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
-nostr.workspace = true
+nostr = { workspace = true, features = ["nip46"] }
+nostr-connect.workspace = true
 nostr-sdk.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true

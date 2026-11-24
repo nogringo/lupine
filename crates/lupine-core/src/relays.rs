@@ -73,7 +73,11 @@ impl Relays {
         keys: &DriveKeys,
         urls: impl IntoIterator<Item = RelayUrl>,
     ) -> Result<Self> {
-        Self::connect(SignerAuthenticator::new(keys.keys().clone()), urls).await
+        Self::connect(
+            authenticated(SignerAuthenticator::new(keys.keys().clone())),
+            urls,
+        )
+        .await
     }
 
     /// Signs AUTH with the user's key, when a relay asks.
@@ -81,14 +85,15 @@ impl Relays {
         signer: Arc<S>,
         urls: impl IntoIterator<Item = RelayUrl>,
     ) -> Result<Self> {
-        Self::connect(UserAuthenticator(signer), urls).await
+        Self::connect(authenticated(UserAuthenticator(signer)), urls).await
     }
 
-    async fn connect<A: Authenticator>(
-        authenticator: A,
-        urls: impl IntoIterator<Item = RelayUrl>,
-    ) -> Result<Self> {
-        let client = Client::builder().authenticator(authenticator).build();
+    /// Without AUTH, for public lists and events already signed.
+    pub async fn public(urls: impl IntoIterator<Item = RelayUrl>) -> Result<Self> {
+        Self::connect(Client::builder().build(), urls).await
+    }
+
+    async fn connect(client: Client, urls: impl IntoIterator<Item = RelayUrl>) -> Result<Self> {
         let mut unique = Vec::new();
         for url in urls {
             if !unique.contains(&url) {
@@ -304,6 +309,10 @@ impl Relays {
                 message: "not a drive relay".into(),
             })
     }
+}
+
+fn authenticated(authenticator: impl Authenticator + 'static) -> Client {
+    Client::builder().authenticator(authenticator).build()
 }
 
 /// Pages back through `created_at` until a page brings nothing new.

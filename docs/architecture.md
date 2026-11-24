@@ -51,7 +51,9 @@ The user's identity is used once per device, to read the drive descriptor. After
 - A NIP-46 bunker cannot sign the 6,000 Blossom tokens of a 50 GB upload, or decrypt thousands of versions during an initial sync.
 - Relays and Blossom servers see an anonymous pubkey, not the user's npub. Only the descriptor event, whose content is encrypted, links the two.
 
-Cost: paid Blossom servers and relays requiring auth must allow the drive pubkey rather than the user's npub, and again after each key rotation. The app has to show it.
+Cost: paid Blossom servers and relays requiring auth must allow the drive pubkey rather than the user's npub, and again after each key rotation. The app has to show it, and does in its settings.
+
+Signing in takes an nsec, a `bunker://` link, or a `nostrconnect://` pairing that a NIP-46 signer scans as a QR code. The device finds the user's write relays in their latest kind 10002, on index relays, reads the descriptors there and opens one, or creates a drive. It then forgets the user's key: the keychain holds the drive secret, and the local database the descriptor event, which the device republishes to the relays that lack it without needing the user's key. A new drive starts from the user's own inbox relays (kind 10050) and Blossom servers (kind 10063), which the user edits. Before announcing it, the device checks with BUD-06 (`HEAD /upload`) that each server takes an encrypted chunk, which media hosts refuse. A key rotation will need every device to sign in again.
 
 Losing the drive secret loses the drive, and leaking it gives the drive away. Every device republishes the descriptor where it is missing, and the user can export a recovery key. After a device is lost, a key rotation replaces the drive key: it locks out a device that can no longer decrypt with the user's key, such as a revoked NIP-46 session, and every other device needs the user's key once more.
 
@@ -93,6 +95,7 @@ Reads go to the servers in order and move on when one fails, lacks the blob or s
 - `Lupine.app`, a menu bar agent started at login. It keeps the relay subscriptions, runs folder sync and signals the File Provider enumerators when the remote tree changes. The extension cannot do this itself: the system stops it when idle, and Nostr has no push.
 - `LupineFileProvider.appex` serves Finder: enumerates from the local database, fetches (partial) contents from Blossom, uploads new and modified files and writes Finder's changes to the local database. It does not reach the relays: it leaves the new wraps in an outbox and posts a Darwin notification, on which the app sends them.
 - Both share an SQLite database in the App Group container (`936HBZB935.ovh.uid.lupine`) and keys in a shared keychain group.
+- The app opens a window to sign in when no drive is set up, and registers the Finder location only once one is. Signing out stops both syncs, removes the Finder location (files Finder had not handed over are set aside and shown), then the database and the drive secret. Synced folders keep their files.
 - The extension fetches content into the system's temporary directory. A partial fetch writes the requested range, widened to whole 64 KiB segments and to the system's alignment, at its offsets in a sparse file of the full size.
 - The extension uploads from an APFS clone of the file the system hands it, so an edit made during the upload cannot mix into the version. An edit uploads only the chunks that changed, under the file's key.
 - Finder has no trash for the drive: it asks, then deletes for good. `.DS_Store` files, symbolic links and aliases stay on the Mac.
@@ -118,6 +121,7 @@ Each drive has its own SQLite database, in WAL mode, shared by the app and the F
 - The extension writes each version with the item Finder asked for, in one transaction, so Finder finds the item at once. When the tree rules show something else, such as a suffix for a colliding name, the app corrects the item once it takes the version in.
 - The wraps of the extension and folder sync wait in an outbox, in the order written. The app takes them into its replica and sends them a wave at a time: a folder's tombstone leaves only once those of what it held reached a relay, so a deletion cut short never revives a folder. Sync repairs leave the outbox alone.
 - It holds decrypted metadata, file keys included, like the files a device downloads. The drive secret stays in the keychain.
+- It holds the descriptor this device signed in with, the drive's name and the user's write relays, so that the app republishes the descriptor at each launch. A drive opened with a recovery key has none.
 - It holds three device ids per drive: the session's, the extension's and folder sync's. Version vectors take a device's versions to follow one another, each written after seeing the last, which two writers at once would break. The database is excluded from backups: a restored copy would reuse these ids. Losing the database costs a full sync, and Finder changes not yet sent.
 - For each synced folder, it holds what every entry was when both sides last agreed: its node, its place, the content version of the drive's file, and the file id, size and modification time of the local one.
 
@@ -160,4 +164,4 @@ A synced folder pairs a folder of the device with a drive folder: the one of the
 4. Local database and the File Provider read path (enumerate, fetch, partial fetch) (done).
 5. File Provider write path (create, modify, move, delete) (done).
 6. Folder sync engine (done).
-7. Sign-in (nsec, NIP-46), onboarding, settings.
+7. Sign-in (nsec, NIP-46), onboarding, settings (done; editing the drive's relays and servers remains).

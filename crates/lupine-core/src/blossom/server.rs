@@ -12,6 +12,7 @@ use tokio::sync::OnceCell;
 
 use super::auth::{self, Verb};
 use crate::blob::slice;
+use crate::crypto::random_bytes;
 use crate::error::{Error, Result};
 use crate::ids::Sha256Hash;
 
@@ -166,6 +167,30 @@ impl BlossomServer {
             .body(blob);
         let response = self.send(request).await?;
         self.stored(response, hash, Some(len)).await
+    }
+
+    /// BUD-06 `HEAD /upload`: whether the server would store an encrypted
+    /// blob of `len` bytes. Media hosts refuse them. Servers without BUD-06
+    /// pass, and so do refusals of the key: paid servers must allow the
+    /// drive key, which a new drive does not have yet.
+    pub async fn check_upload(&self, len: u64) -> Result<()> {
+        let hash = Sha256Hash::digest(&random_bytes::<32>());
+        let request = self
+            .http
+            .head(self.base.join("upload").expect("a valid path"))
+            .header(header::AUTHORIZATION, self.auth(Verb::Upload, &hash)?)
+            .header("X-SHA-256", hash.to_hex())
+            .header("X-Content-Length", len)
+            .header("X-Content-Type", "application/octet-stream");
+        let response = self.send(request).await?;
+        match response.status() {
+            StatusCode::BAD_REQUEST
+            | StatusCode::LENGTH_REQUIRED
+            | StatusCode::PAYLOAD_TOO_LARGE
+            | StatusCode::UNSUPPORTED_MEDIA_TYPE => Err(self.failure(&response)),
+            status if status.is_server_error() => Err(self.failure(&response)),
+            _ => Ok(()),
+        }
     }
 
     /// Whether the server can fetch blobs from other servers itself.
