@@ -25,6 +25,9 @@ use crate::task::blocking;
 /// them, and reads fall back from one server to the next.
 pub struct BlossomStore {
     servers: Vec<BlossomServer>,
+    /// Read from, never written to: servers the drive is leaving, until
+    /// every blob reached the others.
+    sources: Vec<BlossomServer>,
 }
 
 impl BlossomStore {
@@ -42,7 +45,23 @@ impl BlossomStore {
         if servers.is_empty() {
             return Err(Error::Malformed("a drive needs a Blossom server"));
         }
-        Ok(Self { servers })
+        Ok(Self {
+            servers,
+            sources: Vec::new(),
+        })
+    }
+
+    /// Also reads from `urls`, after the servers, and copies from them.
+    pub fn with_sources<I, S>(mut self, urls: I, keys: &Keys) -> Result<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.sources = urls
+            .into_iter()
+            .map(|url| BlossomServer::new(url.as_ref(), keys.clone()))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(self)
     }
 
     pub fn servers(&self) -> &[BlossomServer] {
@@ -50,7 +69,7 @@ impl BlossomStore {
     }
 
     fn all(&self) -> Vec<&BlossomServer> {
-        self.servers.iter().collect()
+        self.servers.iter().chain(&self.sources).collect()
     }
 }
 
@@ -98,10 +117,12 @@ impl BlobStore for BlossomStore {
     }
 
     /// Makes sure every server holds the blob, copying it to the servers
-    /// that lost it from those that kept it. Run before publishing a version
-    /// that references it, since another device may have collected it.
+    /// that lost it from those that kept it, sources included. Run before
+    /// publishing a version that references it, since another device may
+    /// have collected it.
     ///
-    /// `BlobNotFound` when no server has it any more.
+    /// `BlobNotFound` when no server has it any more, and every source
+    /// answered.
     async fn replicate(&self, hash: Sha256Hash) -> Result<()> {
         let held = try_join_all(self.servers.iter().map(|s| retrying(|| s.has(hash)))).await?;
         let (holders, missing): (Vec<_>, Vec<_>) =
@@ -109,9 +130,20 @@ impl BlobStore for BlossomStore {
         if missing.is_empty() {
             return Ok(());
         }
-        let holders: Vec<_> = holders.into_iter().map(|(server, _)| server).collect();
+        let mut holders: Vec<_> = holders.into_iter().map(|(server, _)| server).collect();
+        // A server the drive leaves may be gone already. One that does not
+        // answer may still hold the blob, which is then not lost.
+        let mut unanswered = None;
+        let kept = join_all(self.sources.iter().map(|s| retrying(|| s.has(hash)))).await;
+        for (source, kept) in self.sources.iter().zip(kept) {
+            match kept {
+                Ok(true) => holders.push(source),
+                Ok(false) => {}
+                Err(e) => unanswered = Some(e),
+            }
+        }
         if holders.is_empty() {
-            return Err(Error::BlobNotFound(hash));
+            return Err(unanswered.unwrap_or(Error::BlobNotFound(hash)));
         }
         let sources: Vec<_> = holders.iter().map(|s| s.blob_url(&hash)).collect();
         let blob = OnceCell::new();

@@ -17,6 +17,7 @@ pub mod identity;
 pub mod ids;
 pub mod io;
 pub mod items;
+pub mod lists;
 pub mod names;
 pub mod node;
 pub mod relays;

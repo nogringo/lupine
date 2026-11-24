@@ -83,7 +83,7 @@ pub fn open_content_reader(
     secret: String,
 ) -> Result<Arc<ContentReader>, CoreError> {
     let keys = drive.keys(&secret)?;
-    let blobs = BlossomStore::new(&drive.record()?.servers, keys.keys())?;
+    let blobs = drive.blobs(&keys)?;
     Ok(Arc::new(ContentReader {
         store: Arc::clone(&drive.store),
         reader: FileReader::new(blobs),

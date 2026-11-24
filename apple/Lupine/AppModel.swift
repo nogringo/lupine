@@ -15,6 +15,11 @@ final class AppModel {
         case failed(String)
     }
 
+    struct Fill: Equatable {
+        var done: UInt64
+        var total: UInt64
+    }
+
     enum DriveState: Equatable {
         case none
         case opening
@@ -36,6 +41,8 @@ final class AppModel {
     private(set) var folders: SyncedFolders?
     private(set) var info: DriveInfo?
     private(set) var historyDays: UInt32 = 30
+    /// Blobs being copied to the drive's servers.
+    private(set) var fill: Fill?
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
     private(set) var loginItemNeedsApproval = SMAppService.mainApp.status == .requiresApproval
     private var local: LocalDrive?
@@ -43,6 +50,9 @@ final class AppModel {
     private var syncing: Task<Void, Never>?
     private var outbox: OutboxSignal.Listener?
     private var keptDescriptor = false
+    private var filling: Task<Void, Never>?
+    private var fillStop: Cancellation?
+    private var lastFill: Date?
 
     var hasDrive: Bool {
         local != nil
@@ -105,6 +115,17 @@ final class AppModel {
         }
     }
 
+    /// Publishes the drive's new lists, then opens the drive again with them.
+    func changeLists(relays: [String], servers: [String]) async throws {
+        guard let local, let id = info?.id, let secret = try DriveKeychain.secret(drive: id) else {
+            return
+        }
+        let changed = try await LupineCore.changeLists(drive: local, secret: secret, relays: relays, servers: servers)
+        if changed.relays || changed.servers {
+            await reopenDrive()
+        }
+    }
+
     func unsentChanges() -> UInt64 {
         (try? local?.unsent()) ?? 0
     }
@@ -128,17 +149,8 @@ final class AppModel {
     func signOut() async {
         guard let local else { return }
         let id = try? local.info().id
-        sync?.stop()
-        await syncing?.value
-        await folders?.stop()
-        outbox = nil
-        sync = nil
-        syncing = nil
-        folders = nil
-        self.local = nil
+        await closeDrive()
         info = nil
-        keptDescriptor = false
-        driveState = .none
         do {
             if let kept = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData) {
                 NSWorkspace.shared.activateFileViewerSelecting([kept])
@@ -157,6 +169,31 @@ final class AppModel {
         }
         windows.close(.settings)
         showOnboarding()
+    }
+
+    /// Stops everything that uses the drive, which stays set up.
+    private func closeDrive() async {
+        fillStop?.cancel()
+        await filling?.value
+        sync?.stop()
+        await syncing?.value
+        await folders?.stop()
+        outbox = nil
+        sync = nil
+        syncing = nil
+        folders = nil
+        local = nil
+        fill = nil
+        lastFill = nil
+        keptDescriptor = false
+        driveState = .none
+    }
+
+    /// The drive's relays or servers changed.
+    fileprivate func reopenDrive() async {
+        guard local != nil else { return }
+        await closeDrive()
+        await openDrive()
     }
 
     private func openDrive() async {
@@ -216,6 +253,45 @@ final class AppModel {
             } catch {
                 logger.error("Republishing the descriptor failed: \(error.localizedDescription, privacy: .public)")
             }
+        }
+    }
+
+    /// Copies the blobs the drive's new servers lack, once the session synced
+    /// every relay and knows every version. A fill cut short or failed tries
+    /// again after an hour.
+    fileprivate func startFill() {
+        guard filling == nil, let local, info?.filling == true,
+              lastFill.map({ $0.timeIntervalSinceNow < -3600 }) ?? true,
+              let id = info?.id, let secret = try? DriveKeychain.secret(drive: id)
+        else { return }
+        let stop = Cancellation()
+        fillStop = stop
+        lastFill = Date()
+        fill = Fill(done: 0, total: 0)
+        let reporter = FillReporter(model: self)
+        filling = Task {
+            do {
+                let report = try await LupineCore.fillServers(drive: local, secret: secret, observer: reporter, cancellation: stop)
+                if report.lost > 0 {
+                    logger.error("\(report.lost) blobs are on no server")
+                }
+                for failure in report.failed {
+                    logger.error("Copying a blob failed: \(failure, privacy: .public)")
+                }
+            } catch CoreError.Cancelled {
+            } catch {
+                logger.error("Copying blobs failed: \(error.localizedDescription, privacy: .public)")
+            }
+            fill = nil
+            filling = nil
+            fillStop = nil
+            info = try? self.local?.info()
+        }
+    }
+
+    fileprivate func fillProgressed(_ progress: Fill) {
+        if filling != nil {
+            fill = progress
         }
     }
 
@@ -292,6 +368,15 @@ private final class SyncReporter: SyncObserver {
             // Folder sync waits for the first full sync, which may change no item.
             $0.folders?.changed()
             $0.keepDescriptor()
+            if failed.isEmpty {
+                $0.startFill()
+            }
+        }
+    }
+
+    func listsChanged() {
+        onMain { model in
+            Task { await model.reopenDrive() }
         }
     }
 
@@ -307,6 +392,21 @@ private final class SyncReporter: SyncObserver {
         let model = model
         DispatchQueue.main.async {
             MainActor.assumeIsolated { update(model) }
+        }
+    }
+}
+
+private final class FillReporter: FillObserver {
+    private let model: AppModel
+
+    init(model: AppModel) {
+        self.model = model
+    }
+
+    func progressed(done: UInt64, total: UInt64) {
+        let model = model
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { model.fillProgressed(AppModel.Fill(done: done, total: total)) }
         }
     }
 }

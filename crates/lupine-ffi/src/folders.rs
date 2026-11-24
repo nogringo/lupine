@@ -78,7 +78,7 @@ pub fn open_folder_sync(
     trash: Box<dyn LocalTrash>,
 ) -> Result<Arc<FolderSync>, CoreError> {
     let keys = drive.keys(&secret)?;
-    let blobs = BlossomStore::new(&drive.record()?.servers, keys.keys())?;
+    let blobs = drive.blobs(&keys)?;
     let trash = Box::new(ForeignTrash(trash));
     let sync = folder_sync::FolderSync::new(Arc::clone(&drive.store), keys, blobs, trash)?;
     Ok(Arc::new(FolderSync {

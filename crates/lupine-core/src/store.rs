@@ -27,17 +27,21 @@ use crate::replica::{Record, Retention, Snapshot, WrapState};
 use crate::tree::EntryKind;
 
 mod folders;
+mod lists;
+
+pub use lists::ListsState;
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Migration `n` takes the schema from version `n` to `n + 1`. A new
 /// database runs them all.
-const MIGRATIONS: [&str; 5] = [
+const MIGRATIONS: [&str; 6] = [
     SCHEMA_V1,
     MIGRATION_V2,
     MIGRATION_V3,
     MIGRATION_V4,
     MIGRATION_V5,
+    MIGRATION_V6,
 ];
 
 const SCHEMA_V1: &str = "
@@ -149,6 +153,15 @@ ALTER TABLE drive ADD COLUMN user_relays TEXT;
 /// the default.
 const MIGRATION_V5: &str = "
 ALTER TABLE drive ADD COLUMN history INTEGER;
+";
+
+/// Editing the drive's lists: when this device applied them, the servers
+/// the drive leaves, and the fill that copies every blob to the others.
+const MIGRATION_V6: &str = "
+ALTER TABLE drive ADD COLUMN relays_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE drive ADD COLUMN servers_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE drive ADD COLUMN leaving TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE drive ADD COLUMN fill INTEGER NOT NULL DEFAULT 0;
 ";
 
 const STATE_VERSION: i64 = 0;

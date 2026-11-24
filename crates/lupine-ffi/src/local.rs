@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lupine_core::account::DriveLists;
+use lupine_core::blossom::BlossomStore;
 use lupine_core::descriptor::RecoveryKey;
 use lupine_core::drive::DriveKeys;
 use lupine_core::ids::NodeId;
@@ -34,6 +35,11 @@ pub struct DriveInfo {
     pub user: Option<String>,
     pub relays: Vec<String>,
     pub servers: Vec<String>,
+    /// Servers the drive left, still read from until every blob reached
+    /// the others.
+    pub leaving: Vec<String>,
+    /// Blobs are still to be copied to the servers.
+    pub filling: bool,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -166,6 +172,7 @@ impl LocalDrive {
     pub fn info(&self) -> Result<DriveInfo, CoreError> {
         let drive = self.record()?;
         let descriptor = self.store.descriptor()?;
+        let lists = self.store.lists_state()?;
         Ok(DriveInfo {
             id: drive.id.to_hex(),
             name: descriptor.as_ref().map(|d| d.name.clone()),
@@ -173,6 +180,8 @@ impl LocalDrive {
             user: descriptor.as_ref().map(|d| npub(&d.event.pubkey)),
             relays: drive.relays.iter().map(ToString::to_string).collect(),
             servers: drive.servers,
+            leaving: lists.leaving,
+            filling: lists.fill != 0,
         })
     }
 
@@ -259,6 +268,13 @@ impl LocalDrive {
         self.store
             .drive()?
             .ok_or_else(|| CoreError::Check("no drive is set up".into()))
+    }
+
+    /// The drive's servers, and those it leaves as sources.
+    pub(crate) fn blobs(&self, keys: &DriveKeys) -> Result<BlossomStore, CoreError> {
+        let leaving = self.store.lists_state()?.leaving;
+        Ok(BlossomStore::new(&self.record()?.servers, keys.keys())?
+            .with_sources(&leaving, keys.keys())?)
     }
 
     /// The keys of this drive, from its secret in hex.

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var recoveryKey: String?
     @State private var confirmsSignOut = false
     @State private var unsent: UInt64 = 0
+    @State private var editsLists = false
 
     var body: some View {
         Form {
@@ -23,6 +24,24 @@ struct SettingsView: View {
                     KeyRow(label: "Drive key", key: info.driveKey)
                     LabeledContent("Relays") { AddressList(addresses: info.relays) }
                     LabeledContent("Blossom servers") { AddressList(addresses: info.servers) }
+                    if !info.leaving.isEmpty {
+                        LabeledContent("Leaving") { AddressList(addresses: info.leaving) }
+                    }
+                    if let fill = model.fill {
+                        LabeledContent("Copying files to the servers") {
+                            Text(fill.total == 0 ? "Listing" : "\(fill.done) of \(fill.total)")
+                        }
+                        if fill.total > 0 {
+                            ProgressView(value: Double(fill.done), total: Double(fill.total))
+                        }
+                    } else if info.filling {
+                        Text("Files will be copied to the servers after the next sync with every relay.")
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Spacer()
+                        Button("Edit Relays and Servers...") { editsLists = true }
+                    }
                 } header: {
                     Text("Drive")
                 } footer: {
@@ -87,6 +106,11 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 480, height: 620)
+        .sheet(isPresented: $editsLists) {
+            if let info = model.info {
+                ListsEditor(model: model, info: info)
+            }
+        }
         .alert("Sign out of Lupine on this Mac?", isPresented: $confirmsSignOut) {
             Button("Sign Out", role: .destructive) {
                 Task { await model.signOut() }
@@ -138,6 +162,81 @@ private struct AddressList: View {
         VStack(alignment: .trailing, spacing: 2) {
             ForEach(addresses, id: \.self) { address in
                 Text(address).textSelection(.enabled)
+            }
+        }
+    }
+}
+
+private struct ListsEditor: View {
+    let model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var relays: String
+    @State private var servers: String
+    @State private var saving = false
+    @State private var error: String?
+
+    init(model: AppModel, info: DriveInfo) {
+        self.model = model
+        _relays = State(initialValue: info.relays.joined(separator: "\n"))
+        _servers = State(initialValue: info.servers.joined(separator: "\n"))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Relays and Servers").font(.title3.bold())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Relays, one per line").font(.headline)
+                ListEditor(text: $relays)
+                Text("A new relay gets the whole drive at the next sync.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Blossom servers, one per line, most trusted first").font(.headline)
+                ListEditor(text: $servers)
+                Text("A new server gets a copy of every file. Lupine reads from the servers you remove until the copy is done, then leaves their files in place.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let error {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                if saving {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .disabled(saving)
+                Button("Save", action: save)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(saving || ListEditor.entries(relays).isEmpty || ListEditor.entries(servers).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+    }
+
+    private func save() {
+        saving = true
+        error = nil
+        Task {
+            do {
+                try await model.changeLists(
+                    relays: ListEditor.entries(relays),
+                    servers: ListEditor.entries(servers)
+                )
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+                saving = false
             }
         }
     }

@@ -207,17 +207,7 @@ impl SignIn {
         relays: Vec<String>,
         servers: Vec<String>,
     ) -> Result<ImportedDrive, CoreError> {
-        let relays = relays
-            .iter()
-            .filter_map(|url| with_scheme(url, "wss://"))
-            .map(|url| {
-                RelayUrl::parse(&url).map_err(|_| CoreError::Check(format!("invalid relay: {url}")))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let servers: Vec<String> = servers
-            .iter()
-            .filter_map(|url| with_scheme(url, "https://"))
-            .collect();
+        let (relays, servers) = (relay_urls(&relays)?, server_urls(&servers));
         let name = match name.trim() {
             "" => "Lupine",
             name => name,
@@ -230,6 +220,24 @@ impl SignIn {
         self.account.shutdown().await;
         self.account.signer().shutdown().await;
     }
+}
+
+/// Addresses typed one per line, which may leave out their scheme.
+pub(crate) fn relay_urls(relays: &[String]) -> Result<Vec<RelayUrl>, CoreError> {
+    relays
+        .iter()
+        .filter_map(|url| with_scheme(url, "wss://"))
+        .map(|url| {
+            RelayUrl::parse(&url).map_err(|_| CoreError::Check(format!("invalid relay: {url}")))
+        })
+        .collect()
+}
+
+pub(crate) fn server_urls(servers: &[String]) -> Vec<String> {
+    servers
+        .iter()
+        .filter_map(|url| with_scheme(url, "https://"))
+        .collect()
 }
 
 fn with_scheme(url: &str, scheme: &str) -> Option<String> {

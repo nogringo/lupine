@@ -5,6 +5,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use axum::http::{Method, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
+use bytes::Bytes;
 use nostr::event::{Event, EventId, Kind};
 use nostr::filter::Filter;
 use nostr::key::PublicKey;
@@ -15,6 +18,8 @@ use nostr_database::{
 };
 use nostr_memory::MemoryDatabase;
 use nostr_sdk::local_relay::{LocalRelay, LocalRelayBuilder};
+
+use crate::ids::Sha256Hash;
 
 type Boxed<'a, T> = Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
 
@@ -156,4 +161,61 @@ pub(crate) async fn blossom_server(status: Option<u16>) -> String {
     let app = axum::Router::new().fallback(move || async move { status });
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     url
+}
+
+/// A Blossom server that stores what it is sent, with no auth: enough to
+/// move blobs between servers. It advertises neither BUD-13 upload nor
+/// mirroring, and ignores `Range`.
+pub(crate) struct TestBlossom {
+    pub url: String,
+    blobs: Arc<Mutex<HashMap<Sha256Hash, Bytes>>>,
+}
+
+impl TestBlossom {
+    pub async fn start() -> Self {
+        let blobs: Arc<Mutex<HashMap<Sha256Hash, Bytes>>> = Arc::default();
+        let held = Arc::clone(&blobs);
+        let app = axum::Router::new().fallback(move |method: Method, uri: Uri, body: Bytes| {
+            let blobs = Arc::clone(&held);
+            async move { serve_blob(&blobs, &method, uri.path(), body) }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        Self { url, blobs }
+    }
+
+    pub fn len(&self) -> usize {
+        self.blobs.lock().unwrap().len()
+    }
+}
+
+fn serve_blob(
+    blobs: &Mutex<HashMap<Sha256Hash, Bytes>>,
+    method: &Method,
+    path: &str,
+    body: Bytes,
+) -> Response {
+    let path = path.trim_start_matches('/');
+    match (method, path) {
+        (&Method::PUT, "upload") => {
+            let hash = Sha256Hash::digest(&body);
+            let descriptor = serde_json::json!({ "sha256": hash, "size": body.len() });
+            blobs.lock().unwrap().insert(hash, body);
+            descriptor.to_string().into_response()
+        }
+        (&Method::OPTIONS, _) | (&Method::HEAD, "upload") => StatusCode::OK.into_response(),
+        (&Method::GET | &Method::HEAD, path) => {
+            let found = path
+                .parse::<Sha256Hash>()
+                .ok()
+                .and_then(|hash| blobs.lock().unwrap().get(&hash).cloned());
+            match found {
+                Some(_) if method == Method::HEAD => StatusCode::OK.into_response(),
+                Some(blob) => blob.into_response(),
+                None => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    }
 }

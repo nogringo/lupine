@@ -24,6 +24,7 @@ use crate::drive::DriveKeys;
 use crate::error::{Error, Result};
 use crate::ids::{NodeId, VersionId};
 use crate::items::{self, Item};
+use crate::lists::{self, Changed, Latest};
 use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::relays::{Comparison, Relays, Sent};
 use crate::replica::{Holdings, Replica, Retention};
@@ -58,6 +59,9 @@ pub struct SyncReport {
     /// Relays that could not be synced. Their repairs wait for a sync that
     /// reaches them.
     pub failed: Vec<(RelayUrl, Error)>,
+    /// Lists another device published, applied to the local database. The
+    /// session still uses the relays it opened with.
+    pub lists: Changed,
 }
 
 #[derive(Debug)]
@@ -76,6 +80,9 @@ pub enum Followed<'a> {
     Synced(&'a SyncReport),
     /// Wraps deleted by a compaction.
     Compacted(usize),
+    /// Another device changed the drive's relays or servers: reopen what
+    /// uses them.
+    ListsChanged,
     /// The items shown changed: file system integrations should look.
     ItemsChanged,
 }
@@ -241,6 +248,11 @@ impl DriveSession {
         }
         self.persist(newly_synced)?;
         report.repaired = self.send_repairs(&holdings).await?;
+        if !holdings.relays.is_empty()
+            && let Ok(latest) = Latest::find(&self.relays, self.public_key()).await
+        {
+            report.lists = lists::apply(&self.store, latest)?;
+        }
         Ok(report)
     }
 
@@ -420,6 +432,9 @@ impl DriveSession {
             report(Followed::Syncing);
             let synced = self.sync().await?;
             report(Followed::Synced(&synced));
+            if synced.lists.any() {
+                report(Followed::ListsChanged);
+            }
             let due = self.compacted.is_none_or(|at| at.elapsed() >= COMPACTION);
             if self.complete && due {
                 report(Followed::Compacted(self.compact().await?));

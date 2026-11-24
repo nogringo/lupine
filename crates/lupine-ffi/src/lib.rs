@@ -9,6 +9,7 @@ use lupine_core::io::MemoryFile;
 
 mod account;
 mod folders;
+mod lists;
 mod local;
 mod reader;
 mod sync;

@@ -2,13 +2,14 @@ import FileProvider
 import LupineCore
 
 /// Opens the drive on first use, since the app may set it up after the
-/// extension started.
+/// extension started. The reader and the writer follow the drive's servers,
+/// which the app may change.
 final class DriveAccess: @unchecked Sendable {
     private let domain: String
     private let lock = NSLock()
     private var local: LocalDrive?
-    private var reader: ContentReader?
-    private var writer: ItemWriter?
+    private var reader: (ContentReader, servers: [[String]])?
+    private var writer: (ItemWriter, servers: [[String]])?
 
     init(domain: String) {
         self.domain = domain
@@ -21,35 +22,37 @@ final class DriveAccess: @unchecked Sendable {
 
     func contentReader() throws -> ContentReader {
         try lock.withLock {
-            if let reader {
-                return reader
+            let (local, secret, servers) = try unlocked()
+            if let reader, reader.servers == servers {
+                return reader.0
             }
-            let (local, secret) = try unlocked()
-            let reader = try openContentReader(drive: local, secret: secret)
-            self.reader = reader
-            return reader
+            let opened = try openContentReader(drive: local, secret: secret)
+            reader = (opened, servers)
+            return opened
         }
     }
 
     func itemWriter() throws -> ItemWriter {
         try lock.withLock {
-            if let writer {
-                return writer
+            let (local, secret, servers) = try unlocked()
+            if let writer, writer.servers == servers {
+                return writer.0
             }
-            let (local, secret) = try unlocked()
-            let writer = try openItemWriter(drive: local, secret: secret)
-            self.writer = writer
-            return writer
+            let opened = try openItemWriter(drive: local, secret: secret)
+            writer = (opened, servers)
+            return opened
         }
     }
 
-    private func unlocked() throws -> (LocalDrive, String) {
-        guard let local = try openDrive(),
-              let secret = try DriveKeychain.secret(drive: local.info().id)
-        else {
+    private func unlocked() throws -> (LocalDrive, String, servers: [[String]]) {
+        guard let local = try openDrive() else {
             throw NSFileProviderError(.notAuthenticated)
         }
-        return (local, secret)
+        let info = try local.info()
+        guard let secret = try DriveKeychain.secret(drive: info.id) else {
+            throw NSFileProviderError(.notAuthenticated)
+        }
+        return (local, secret, [info.servers, info.leaving])
     }
 
     private func openDrive() throws -> LocalDrive? {

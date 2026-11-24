@@ -36,7 +36,7 @@ final class Onboarding {
     }
 
     var canCreate: Bool {
-        !Self.lines(relays).isEmpty && !Self.lines(servers).isEmpty
+        !ListEditor.entries(relays).isEmpty && !ListEditor.entries(servers).isEmpty
     }
 
     /// An nsec or a `bunker://` link.
@@ -96,7 +96,7 @@ final class Onboarding {
 
     func create() {
         guard let session else { return }
-        let (name, relays, servers) = (name, Self.lines(relays), Self.lines(servers))
+        let (name, relays, servers) = (name, ListEditor.entries(relays), ListEditor.entries(servers))
         perform("Creating the drive", failing: .createDrive) {
             let path = try SharedContainer.databaseURL().path(percentEncoded: false)
             let created = try await session.createDrive(path: path, name: name, relays: relays, servers: servers)
@@ -188,12 +188,6 @@ final class Onboarding {
         if back == .welcome {
             Task { await closeSession() }
         }
-    }
-
-    private static func lines(_ text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
     }
 }
 

@@ -5,18 +5,16 @@
 use std::cmp::Reverse;
 use std::sync::Arc;
 
-use futures::future::try_join_all;
 use nostr::event::{Event, Kind};
 use nostr::filter::Filter;
 use nostr::key::PublicKey;
 use nostr::nips::nip65::{self, RelayMetadata};
 use nostr::types::RelayUrl;
 
-use crate::blossom::BlossomStore;
-use crate::content::{ChunkLayout, DEFAULT_CHUNK_SIZE};
 use crate::descriptor::{self, DESCRIPTOR_KIND, Descriptor, FoundDrive, UserSigner};
-use crate::drive::{DriveKeys, read_relay_list, read_server_list};
+use crate::drive::DriveKeys;
 use crate::error::{Error, Result};
+use crate::lists::{Latest, check_servers};
 use crate::relays::{Relays, Sent};
 use crate::store::Store;
 
@@ -85,22 +83,12 @@ impl DriveLists {
     /// The latest kinds 10050 and 10063 of `drive` on `relays`: the user's
     /// relays, or the drive's own.
     pub async fn find(relays: &Relays, drive: PublicKey) -> Result<Self> {
-        let filter = Filter::new()
-            .kinds([Kind::InboxRelays, Kind::BlossomServerList])
-            .author(drive);
-        let events = relays.query(&filter).await?;
-        let latest = |kind: Kind| {
-            events
-                .iter()
-                .filter(|e| e.kind == kind && e.pubkey == drive && e.verify().is_ok())
-                .max_by_key(|e| (e.created_at, Reverse(e.id)))
-        };
+        let latest = Latest::find(relays, drive).await?;
         Ok(Self {
-            relays: latest(Kind::InboxRelays)
-                .map(read_relay_list)
-                .unwrap_or_default(),
-            servers: latest(Kind::BlossomServerList)
-                .map(read_server_list)
+            relays: latest.relays.map(|(relays, _)| relays).unwrap_or_default(),
+            servers: latest
+                .servers
+                .map(|(servers, _)| servers)
                 .unwrap_or_default(),
         })
     }
@@ -245,15 +233,6 @@ impl<S: UserSigner> Account<S> {
     pub async fn shutdown(&self) {
         self.relays.shutdown().await;
     }
-}
-
-/// Fails with the first server that would refuse an encrypted chunk.
-async fn check_servers(servers: &[String], keys: &DriveKeys) -> Result<()> {
-    let blobs = BlossomStore::new(servers, keys.keys())?;
-    let chunk = DEFAULT_CHUNK_SIZE;
-    let len = ChunkLayout::new(chunk.into(), chunk)?.blob_len(0) as u64;
-    try_join_all(blobs.servers().iter().map(|s| s.check_upload(len))).await?;
-    Ok(())
 }
 
 /// Republishes the descriptor this device read, unchanged, to the user's

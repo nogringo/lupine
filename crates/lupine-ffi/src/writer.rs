@@ -62,7 +62,7 @@ pub fn open_item_writer(
     secret: String,
 ) -> Result<Arc<ItemWriter>, CoreError> {
     let keys = drive.keys(&secret)?;
-    let blobs = BlossomStore::new(&drive.record()?.servers, keys.keys())?;
+    let blobs = drive.blobs(&keys)?;
     let writer = core_writer::ItemWriter::new(Arc::clone(&drive.store), keys, blobs)?;
     Ok(Arc::new(ItemWriter { writer }))
 }

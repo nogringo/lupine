@@ -211,8 +211,15 @@ private struct CreateDriveStep: View {
     }
 }
 
-private struct ListEditor: View {
+struct ListEditor: View {
     @Binding var text: String
+
+    /// The addresses typed, one per line.
+    static func entries(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
 
     var body: some View {
         TextEditor(text: $text)

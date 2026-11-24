@@ -95,6 +95,11 @@ The drive key publishes them with existing kinds:
 
 Both go to the drive relays and to the user's write relays (NIP-65), where a new device finds the descriptor.
 
+To change them, a client publishes new ones, to the drive relays of both lists and to the user's write relays. Clients look for them at each sync of the drive relays and apply, for each kind, the latest one by `created_at`.
+
+- A new relay gets the drive's wraps from the sync, which sends each relay those it lacks.
+- When the server list changes, a client copies every blob that the versions it holds reference to each server of the new list that lacks it, as it does before publishing a version: a mirror request (BUD-13) or a download and an upload. Until no blob is left behind, it keeps reading, and copying, from the servers the drive left. Blobs stay on those servers.
+
 ## Node versions
 
 Every change to a node (creation, edit, rename, move, deletion) publishes a new version, which is never replaced. A version travels in an event shaped like a NIP-59 gift wrap:
