@@ -86,7 +86,6 @@ pub struct DriveSession {
     clock: DeviceClock,
     replica: Replica,
     relays: Relays,
-    retention: Retention,
     complete: bool,
     store: Arc<Store>,
     /// Every drive relay was synced once, in this session or before.
@@ -121,7 +120,6 @@ impl DriveSession {
             epoch: drive.epoch,
             clock,
             relays,
-            retention: Retention::default(),
             complete: false,
             store,
             synced,
@@ -132,11 +130,6 @@ impl DriveSession {
         // The items follow the rules of this version of the core.
         session.persist(true)?;
         Ok(session)
-    }
-
-    pub fn with_retention(mut self, retention: Retention) -> Self {
-        self.retention = retention;
-        self
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -718,7 +711,11 @@ impl DriveSession {
             return Ok(0);
         }
         self.compacted = Some(Instant::now());
-        let doomed = self.replica.compaction(unix_millis(), &self.retention);
+        let retention = Retention {
+            history: self.store.history()?,
+            ..Retention::default()
+        };
+        let doomed = self.replica.compaction(unix_millis(), &retention);
         let deletions = self.keys.deletions(doomed.iter().copied())?;
         // Kept even if no relay takes them: the next sync sends them.
         for deletion in &deletions {

@@ -23,7 +23,7 @@ use crate::error::{Error, Result};
 use crate::ids::{DeviceId, DriveId, NodeId, VersionId};
 use crate::items::{Item, ItemChanges};
 use crate::node::{DeviceClock, FileMeta, NodeVersion};
-use crate::replica::{Record, Snapshot, WrapState};
+use crate::replica::{Record, Retention, Snapshot, WrapState};
 use crate::tree::EntryKind;
 
 mod folders;
@@ -32,7 +32,13 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Migration `n` takes the schema from version `n` to `n + 1`. A new
 /// database runs them all.
-const MIGRATIONS: [&str; 4] = [SCHEMA_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
+const MIGRATIONS: [&str; 5] = [
+    SCHEMA_V1,
+    MIGRATION_V2,
+    MIGRATION_V3,
+    MIGRATION_V4,
+    MIGRATION_V5,
+];
 
 const SCHEMA_V1: &str = "
 CREATE TABLE drive (
@@ -137,6 +143,12 @@ const MIGRATION_V4: &str = "
 ALTER TABLE drive ADD COLUMN descriptor TEXT;
 ALTER TABLE drive ADD COLUMN name TEXT;
 ALTER TABLE drive ADD COLUMN user_relays TEXT;
+";
+
+/// The history window this device compacts with, in seconds. `NULL` for
+/// the default.
+const MIGRATION_V5: &str = "
+ALTER TABLE drive ADD COLUMN history INTEGER;
 ";
 
 const STATE_VERSION: i64 = 0;
@@ -397,6 +409,30 @@ impl Store {
             name,
             user_relays: serde_json::from_str(&user_relays)?,
         }))
+    }
+
+    /// How long superseded versions stay before compaction: a setting of
+    /// this device.
+    pub fn history(&self) -> Result<Duration> {
+        let secs: Option<Option<i64>> = self
+            .lock()
+            .query_row("SELECT history FROM drive", [], |row| row.get(0))
+            .optional()?;
+        Ok(match secs.flatten() {
+            Some(secs) => Duration::from_secs(secs.max(0) as u64),
+            None => Retention::default().history,
+        })
+    }
+
+    pub fn set_history(&self, window: Duration) -> Result<()> {
+        let secs = i64::try_from(window.as_secs()).unwrap_or(i64::MAX);
+        let updated = self
+            .lock()
+            .execute("UPDATE drive SET history = ?1", [secs])?;
+        if updated == 0 {
+            return Err(Error::Malformed("no drive in the local database"));
+        }
+        Ok(())
     }
 
     /// Wraps the extension and folder sync wrote that no relay took yet.
@@ -940,6 +976,26 @@ mod tests {
         store.set_descriptor(&kept).unwrap();
         assert_eq!(store.descriptor().unwrap(), Some(kept));
         assert_eq!(store.unsent().unwrap(), 0);
+    }
+
+    #[test]
+    fn the_history_window_is_a_setting_of_the_device() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("drive.sqlite");
+        let store = Store::open(&path).unwrap();
+        let default = Retention::default().history;
+        assert_eq!(store.history().unwrap(), default);
+        assert!(
+            store.set_history(Duration::from_secs(60)).is_err(),
+            "no drive yet"
+        );
+
+        store.set_drive(&record(1)).unwrap();
+        assert_eq!(store.history().unwrap(), default);
+        store.set_history(Duration::from_secs(7 * 86_400)).unwrap();
+        drop(store);
+        let reopened = Store::open(&path).unwrap();
+        assert_eq!(reopened.history().unwrap(), Duration::from_secs(7 * 86_400));
     }
 
     #[test]

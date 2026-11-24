@@ -125,11 +125,8 @@ async fn relays_that_missed_wraps_get_them_back() {
 async fn compaction_deletes_superseded_wraps_as_their_recipient() {
     let (a, b) = (TestRelay::start().await, TestRelay::start().await);
     let drive = DriveKeys::generate();
-    let retention = Retention {
-        history: Duration::ZERO,
-        ..Retention::default()
-    };
-    let mut first = device(&drive, &[&a]).await.with_retention(retention);
+    let mut first = device(&drive, &[&a]).await;
+    first.store().set_history(Duration::ZERO).unwrap();
     let (node, draft) = first.create_folder(None, "Draft").await.unwrap();
     synced(&mut device(&drive, &[&a, &b]).await).await;
     assert!(b.holds(draft.wrap).await);
@@ -504,11 +501,8 @@ async fn following_reports_changes_until_stopped() {
 async fn following_compacts_once_every_relay_is_synced() {
     let a = TestRelay::start().await;
     let drive = DriveKeys::generate();
-    let retention = Retention {
-        history: Duration::ZERO,
-        ..Retention::default()
-    };
-    let mut follower = device(&drive, &[&a]).await.with_retention(retention);
+    let mut follower = device(&drive, &[&a]).await;
+    follower.store().set_history(Duration::ZERO).unwrap();
     let (node, draft) = follower.create_folder(None, "Draft").await.unwrap();
     tick().await;
     follower.move_to(node, None, "Final").await.unwrap();

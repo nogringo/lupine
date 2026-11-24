@@ -35,6 +35,7 @@ final class AppModel {
     private(set) var selfTestResult: String?
     private(set) var folders: SyncedFolders?
     private(set) var info: DriveInfo?
+    private(set) var historyDays: UInt32 = 30
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
     private(set) var loginItemNeedsApproval = SMAppService.mainApp.status == .requiresApproval
     private var local: LocalDrive?
@@ -92,6 +93,15 @@ final class AppModel {
         } catch {
             logger.error("Reading the recovery key failed: \(error.localizedDescription, privacy: .public)")
             return nil
+        }
+    }
+
+    func setHistoryDays(_ days: UInt32) {
+        do {
+            try local?.setHistoryDays(days: days)
+            historyDays = days
+        } catch {
+            logger.error("Changing the history window failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -160,6 +170,7 @@ final class AppModel {
             }
             self.local = local
             info = try local.info()
+            historyDays = try local.historyDays()
             driveState = .opening
             await registerDomain()
             let sync = try await openDriveSync(drive: local, secret: secret)

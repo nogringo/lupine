@@ -30,6 +30,22 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Section {
+                    Picker("Keep replaced versions for", selection: Binding(
+                        get: { model.historyDays },
+                        set: { model.setHistoryDays($0) }
+                    )) {
+                        Text("1 week").tag(UInt32(7))
+                        Text("1 month").tag(UInt32(30))
+                        Text("3 months").tag(UInt32(90))
+                        Text("1 year").tag(UInt32(365))
+                    }
+                } header: {
+                    Text("History")
+                } footer: {
+                    Text("Older ones are deleted from the relays within a day. Each device of the drive applies its own setting, so the shortest one wins.")
+                        .foregroundStyle(.secondary)
+                }
+                Section {
                     if let recoveryKey {
                         RecoveryKeyText(key: recoveryKey)
                         Button("Hide") { self.recoveryKey = nil }

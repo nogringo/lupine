@@ -2,6 +2,7 @@
 //! extension share, and setting it up from a recovery key.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use lupine_core::account::DriveLists;
 use lupine_core::descriptor::RecoveryKey;
@@ -14,6 +15,8 @@ use nostr::key::SecretKey;
 
 use crate::CoreError;
 use crate::account::npub;
+
+const DAY_SECS: u64 = 24 * 60 * 60;
 
 #[derive(uniffi::Object)]
 pub struct LocalDrive {
@@ -184,6 +187,22 @@ impl LocalDrive {
             relays: drive.relays,
         };
         Ok(key.encode())
+    }
+
+    /// How many days the relays keep versions that a newer one replaced,
+    /// before this device compacts them.
+    pub fn history_days(&self) -> Result<u32, CoreError> {
+        Ok((self.store.history()?.as_secs() / DAY_SECS) as u32)
+    }
+
+    pub fn set_history_days(&self, days: u32) -> Result<(), CoreError> {
+        if days == 0 {
+            return Err(CoreError::Check(
+                "the history window is at least a day".into(),
+            ));
+        }
+        let window = Duration::from_secs(u64::from(days) * DAY_SECS);
+        Ok(self.store.set_history(window)?)
     }
 
     /// Changes from Finder and folder sync that no relay took yet.
