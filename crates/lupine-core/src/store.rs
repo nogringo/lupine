@@ -29,14 +29,16 @@ use crate::tree::EntryKind;
 mod blobs;
 mod folders;
 mod lists;
+mod rotation;
 
 pub use lists::ListsState;
+pub use rotation::{Move, Rotation};
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Migration `n` takes the schema from version `n` to `n + 1`. A new
 /// database runs them all.
-const MIGRATIONS: [&str; 7] = [
+const MIGRATIONS: [&str; 8] = [
     SCHEMA_V1,
     MIGRATION_V2,
     MIGRATION_V3,
@@ -44,6 +46,7 @@ const MIGRATIONS: [&str; 7] = [
     MIGRATION_V5,
     MIGRATION_V6,
     MIGRATION_V7,
+    MIGRATION_V8,
 ];
 
 const SCHEMA_V1: &str = "
@@ -180,6 +183,18 @@ CREATE TABLE tables (
 ) WITHOUT ROWID;
 ";
 
+/// Key rotation: the rotation this device started and has yet to finish,
+/// and the key a rotation retired, with the request to vanish it publishes
+/// and the wraps it still has to delete.
+const MIGRATION_V8: &str = "
+ALTER TABLE drive ADD COLUMN rotation TEXT;
+ALTER TABLE drive ADD COLUMN retiring BLOB;
+ALTER TABLE drive ADD COLUMN marker TEXT;
+CREATE TABLE retired (
+    wrap BLOB PRIMARY KEY
+) WITHOUT ROWID;
+";
+
 const STATE_VERSION: i64 = 0;
 const STATE_UNREADABLE: i64 = 1;
 const STATE_JUNK: i64 = 2;
@@ -221,6 +236,20 @@ pub(crate) struct Outgoing {
     pub barrier: bool,
     /// `None` once the wrap was deleted: there is nothing left to send.
     pub event: Option<Event>,
+}
+
+/// What a writer other than the session wrote.
+pub(crate) struct Written<'a> {
+    pub writer: Writer,
+    /// The key the writer opened the drive with.
+    pub drive: &'a PublicKey,
+    pub records: &'a [Record],
+    pub clock: DeviceClock,
+    pub items: &'a ItemChanges,
+    /// The wraps for the session to send, in order, each with its barrier.
+    pub outbox: &'a [(EventId, bool)],
+    /// Blobs it uploaded that a version now references.
+    pub referenced: &'a [Sha256Hash],
 }
 
 /// What the device needs to open the drive, besides its secret.
@@ -387,7 +416,7 @@ impl Store {
                 return Err(Error::Malformed("the local database holds another drive"));
             }
             Some((_, pubkey)) if pubkey != drive.pubkey.as_bytes() => {
-                return Err(Error::Malformed("key rotation is not supported yet"));
+                return Err(Error::DriveKeyChanged);
             }
             Some(_) => {
                 tx.execute(
@@ -566,21 +595,24 @@ impl Store {
         Ok(())
     }
 
-    /// What a writer other than the session wrote, in one transaction: the
-    /// records, its clock, the items they change, `outbox`, the wraps for
-    /// the session to send, in order, each with its barrier, and the blobs
-    /// it uploaded that a version now references.
-    pub(crate) fn commit_outbox(
-        &self,
-        writer: Writer,
-        records: &[Record],
-        clock: DeviceClock,
-        items: &ItemChanges,
-        outbox: &[(EventId, bool)],
-        referenced: &[Sha256Hash],
-    ) -> Result<()> {
+    /// What a writer other than the session wrote, in one transaction.
+    /// Fails when the drive moved to another key since the writer opened it.
+    pub(crate) fn commit_outbox(&self, written: Written<'_>) -> Result<()> {
+        let Written {
+            writer,
+            drive,
+            records,
+            clock,
+            items,
+            outbox,
+            referenced,
+        } = written;
         let mut conn = self.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current: Vec<u8> = tx.query_row("SELECT pubkey FROM drive", [], |row| row.get(0))?;
+        if current != drive.as_bytes() {
+            return Err(Error::DriveKeyChanged);
+        }
         for record in records {
             write_record(&tx, record)?;
         }

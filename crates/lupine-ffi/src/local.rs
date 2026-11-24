@@ -1,6 +1,7 @@
 //! The local database of a drive, which the app and the File Provider
 //! extension share, and setting it up from a recovery key.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +12,7 @@ use lupine_core::drive::DriveKeys;
 use lupine_core::ids::NodeId;
 use lupine_core::items::Item;
 use lupine_core::relays::Relays;
+use lupine_core::rotation::{self, remove_scratch};
 use lupine_core::store::{DescriptorRecord, DriveRecord, Store};
 use nostr::key::SecretKey;
 
@@ -22,6 +24,7 @@ const DAY_SECS: u64 = 24 * 60 * 60;
 #[derive(uniffi::Object)]
 pub struct LocalDrive {
     pub(crate) store: Arc<Store>,
+    path: String,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -40,6 +43,16 @@ pub struct DriveInfo {
     pub leaving: Vec<String>,
     /// Blobs are still to be copied to the servers.
     pub filling: bool,
+    /// Key rotations so far.
+    pub epoch: u32,
+    /// The drive key of a rotation this device started and has yet to
+    /// finish, as an npub.
+    pub next_drive_key: Option<String>,
+    /// That rotation announced the new key: it can only be finished.
+    pub rotation_committed: bool,
+    /// The key a rotation retired, as an npub, until every wrap addressed
+    /// to it is deleted.
+    pub retiring_drive_key: Option<String>,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -93,21 +106,31 @@ pub struct ImportedDrive {
 /// The drive set up in the database at `path`, `None` when there is none.
 #[uniffi::export]
 pub fn open_local_drive(path: String) -> Result<Option<Arc<LocalDrive>>, CoreError> {
-    let store = Store::open(path)?;
+    let store = Store::open(&path)?;
     let set_up = store.drive()?.is_some();
     Ok(set_up.then(|| {
         Arc::new(LocalDrive {
             store: Arc::new(store),
+            path,
         })
     }))
 }
 
+/// The drive key a drive secret, in hex, opens, as an npub.
+#[uniffi::export]
+pub fn drive_key(secret: String) -> Result<String, CoreError> {
+    Ok(npub(&secret_keys(&secret)?.public_key()))
+}
+
 /// Sets up the database at `path` for the drive a recovery key opens. The
-/// drive's lists come from the relays the key names.
+/// drive's lists come from the relays the key names. `current` is the
+/// secret the database is on, which a key made by a rotation needs to keep
+/// what only this device holds.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn import_recovery_key(
     path: String,
     recovery_key: String,
+    current: Option<String>,
 ) -> Result<ImportedDrive, CoreError> {
     let key = RecoveryKey::decode(&recovery_key)?;
     if key.relays.is_empty() {
@@ -132,7 +155,7 @@ pub async fn import_recovery_key(
         },
         servers: lists.servers,
     };
-    set_up(&path, &record, None)?;
+    set_up(&path, &record, None, &keys, current.as_deref()).await?;
     Ok(ImportedDrive {
         id: key.id.to_hex(),
         secret: key.secret.to_secret_hex(),
@@ -140,31 +163,69 @@ pub async fn import_recovery_key(
     })
 }
 
-/// Sets up the database at `path` for `drive`. A database that holds
-/// another drive, whose key this device no longer has, is replaced.
-pub(crate) fn set_up(
+/// Sets up the database at `path` for `drive`, whose key is `keys`. A
+/// database on an older key of the same drive moves to this one, with
+/// `current`, its key. One that holds another drive, or whose key this
+/// device lost, is replaced.
+pub(crate) async fn set_up(
     path: &str,
     drive: &DriveRecord,
     descriptor: Option<&DescriptorRecord>,
+    keys: &DriveKeys,
+    current: Option<&str>,
 ) -> Result<(), CoreError> {
     let mut store = Store::open(path)?;
-    if store.drive()?.is_some_and(|held| held.id != drive.id) {
-        drop(store);
-        for suffix in ["", "-wal", "-shm"] {
-            match std::fs::remove_file(format!("{path}{suffix}")) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(CoreError::Core(e.to_string()));
-                }
-                _ => {}
-            }
-        }
-        store = Store::open(path)?;
+    let held = store.drive()?;
+    if held
+        .as_ref()
+        .is_some_and(|held| held.id == drive.id && held.epoch > drive.epoch)
+    {
+        return Err(CoreError::Check(
+            "this key is from before the drive's last key rotation".into(),
+        ));
     }
-    store.set_drive(drive)?;
+    let old = current
+        .and_then(|secret| secret_keys(secret).ok())
+        .filter(|old| held.as_ref().is_some_and(|h| h.pubkey == old.public_key()));
+    match (&held, old) {
+        (Some(held), Some(old)) if held.id == drive.id && held.pubkey != drive.pubkey => {
+            rotation::adopt(&store, &scratch_path(path), &old, keys, drive, descriptor).await?;
+        }
+        (Some(held), _) if held.id != drive.id || held.pubkey != drive.pubkey => {
+            drop(store);
+            remove_database(path)?;
+            store = Store::open(path)?;
+            store.set_drive(drive)?;
+        }
+        _ => store.set_drive(drive)?,
+    }
     if let Some(descriptor) = descriptor {
         store.set_descriptor(descriptor)?;
     }
     Ok(())
+}
+
+fn remove_database(path: &str) -> Result<(), CoreError> {
+    for suffix in ["", "-wal", "-shm"] {
+        match std::fs::remove_file(format!("{path}{suffix}")) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(CoreError::Core(e.to_string()));
+            }
+            _ => {}
+        }
+    }
+    Ok(remove_scratch(&scratch_path(path))?)
+}
+
+/// Where a key rotation builds the database of the new key.
+pub(crate) fn scratch_path(path: &str) -> PathBuf {
+    PathBuf::from(format!("{path}-rotation"))
+}
+
+pub(crate) fn secret_keys(secret: &str) -> Result<DriveKeys, CoreError> {
+    let secret =
+        SecretKey::from_hex(secret).map_err(|_| CoreError::Check("invalid drive secret".into()))?;
+    Ok(DriveKeys::from_secret(secret))
 }
 
 #[uniffi::export]
@@ -173,6 +234,8 @@ impl LocalDrive {
         let drive = self.record()?;
         let descriptor = self.store.descriptor()?;
         let lists = self.store.lists_state()?;
+        let rotation = self.store.rotation()?;
+        let retiring = self.store.retiring()?;
         Ok(DriveInfo {
             id: drive.id.to_hex(),
             name: descriptor.as_ref().map(|d| d.name.clone()),
@@ -182,6 +245,10 @@ impl LocalDrive {
             servers: drive.servers,
             leaving: lists.leaving,
             filling: lists.fill != 0,
+            epoch: drive.epoch,
+            next_drive_key: rotation.as_ref().map(|r| npub(&r.pubkey)),
+            rotation_committed: rotation.is_some_and(|r| r.committed),
+            retiring_drive_key: retiring.map(|(pubkey, _)| npub(&pubkey)),
         })
     }
 
@@ -279,15 +346,17 @@ impl LocalDrive {
 
     /// The keys of this drive, from its secret in hex.
     pub(crate) fn keys(&self, secret: &str) -> Result<DriveKeys, CoreError> {
-        let secret = SecretKey::from_hex(secret)
-            .map_err(|_| CoreError::Check("invalid drive secret".into()))?;
-        let keys = DriveKeys::from_secret(secret);
+        let keys = secret_keys(secret)?;
         if keys.public_key() != self.record()?.pubkey {
             return Err(CoreError::Check(
                 "this secret does not open the drive".into(),
             ));
         }
         Ok(keys)
+    }
+
+    pub(crate) fn scratch(&self) -> PathBuf {
+        scratch_path(&self.path)
     }
 }
 

@@ -1,6 +1,6 @@
 # Lupine protocol, v1 (draft)
 
-Event kind 3540 is provisional. `crates/lupine-core` implements everything below except key rotation.
+Event kind 3540 is provisional. `crates/lupine-core` implements everything below.
 
 ## Conventions
 
@@ -76,13 +76,19 @@ Importing it restores the drive without any descriptor: the client reads the ver
 
 Rotation replaces the drive key, for example after a device is lost. The rotating client:
 
-1. generates a new `drive_secret`, and publishes its kinds 10050 and 10063 with the same relays and servers;
-2. asks every server to keep each referenced blob for the new key, with a mirror request (BUD-13 `POST /<sha256>`) whose source is that server's own URL for the blob, so no bytes leave the device;
-3. wraps every version it keeps again, for the new pubkey. The JSON does not change, so version ids and `epoch` fields stay as they were;
-4. publishes a descriptor with the same `id`, the next `epoch` and the new secret, then deletes the older descriptors;
-5. deletes, with the old key, every wrap addressed to the old pubkey.
+1. generates a new `drive_secret`, checks with BUD-06 that every server takes uploads from the new key, then signs with the user's key a descriptor with the same `id`, the next `epoch` and the new secret, and the deletion of the older descriptors. It keeps both events, so the steps that follow need only the drive keys and resume after a crash;
+2. publishes the new key's kinds 10050 and 10063, with the same relays and servers;
+3. asks every server that mirrors (BUD-13) to keep each referenced blob for the new key, with a mirror request (`POST /<sha256>`) whose source is that server's own URL for the blob, so no bytes leave the device. Servers that do not mirror keep the blobs under the old key only;
+4. wraps every version it keeps again for the new pubkey, later formats included, and sends the wraps to every drive relay. The plaintext does not change, padding included, so version ids and `epoch` fields stay as they were;
+5. once no drive relay lacks a new wrap, publishes the new descriptor to the user's write relays and to the drive relays, then the deletion of the older ones. From then on the rotation can only be finished;
+6. publishes, with the old key, a NIP-62 request to vanish that names the drive relays and the user's write relays;
+7. deletes, with the old key, every wrap addressed to the old pubkey, only on the drive relays that serve the request to vanish when asked afterwards. A relay may honor the request without keeping it, and deletions there would reach devices still on the old key without it.
 
-Other devices switch to the new key when they read the new descriptor, which takes the user's key again. A version never reuses the `file_root` of a version it replaces from an earlier epoch: the first edit of each file after a rotation uploads it whole, under a new key.
+NIP-59 has relays delete the `kind:1059` events whose `p` tag matches the signer of a request to vanish, so relays that honor NIP-62 delete the old key's wraps at step 6 already.
+
+A client that finds a request to vanish signed by its drive key stops: a rotation retired the key. During a sync it asks each relay for one after it lists the drive deletions and before it applies them, and while following it asks every relay before it applies a batch that holds a deletion, so the deletions of step 7 never reach its tree. A relay that does not answer in full counts as failed, not as holding none. It needs the user's key, or a new recovery key, to read the new descriptor. It then syncs the new key, and wraps again for it the versions it holds that no new wrap carries and that no version under the new key dominates, such as changes it had not sent. It retires the old key too, as in steps 6 and 7.
+
+A version never reuses the `file_root` of a version it replaces from an earlier epoch: the first edit of each file after a rotation uploads it whole, under a new key.
 
 Rotation locks out a device that can no longer decrypt with the user's key, such as one whose NIP-46 session was revoked. A device that holds the user's nsec reads the new descriptor like the others. Content written before the rotation stays readable to the old key, which could have downloaded it already. Blossom does not define who owns a blob, so whether the old key can still delete blobs, and whether the new one can, depends on each server. Paid relays and servers must allow the new pubkey.
 
@@ -201,7 +207,7 @@ A device that comes back within the tombstone lifetime learns about every deleti
 
 ### Deletions and repair
 
-- Clients ignore every wrap that a drive deletion names.
+- Clients ignore every wrap that a drive deletion names, and apply drive deletions only once they checked that their drive key did not vanish (see [Key rotation](#key-rotation)).
 - A client looks for a drive deletion, with `{"kinds": [5], "authors": [<drive pubkey>], "#e": [<wrap ids>]}`, before it trusts a wrap that some drive relays lack, or a version older than the tombstone lifetime of a node it does not know. Without this, a relay that missed a deletion could bring back a node deleted more than a year ago. For the nodes a client knows, version vectors already set old versions aside.
 - When drive relays disagree on a wrap, the client sends the deletion that names it to the relays that still hold it, or, when there is none, the wrap to the relays that lack it.
 - Anyone can send gift wraps to the drive pubkey, which is public. The drive deletes the ones that fail to decrypt like its own wraps, and clients skip their ids until the relays have deleted them. A wrap that decrypts but holds a version the client cannot read, such as a later format, is kept and ignored.

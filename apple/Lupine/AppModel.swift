@@ -25,7 +25,14 @@ final class AppModel {
         case opening
         case syncing
         case synced(failedRelays: Int)
+        case rotating
         case failed(String)
+    }
+
+    struct RotationProgress: Equatable, Sendable {
+        var label: String
+        var done: UInt64 = 0
+        var total: UInt64 = 0
     }
 
     let coreVersion = LupineCore.coreVersion()
@@ -43,6 +50,10 @@ final class AppModel {
     private(set) var historyDays: UInt32 = 30
     /// Blobs being copied to the drive's servers.
     private(set) var fill: Fill?
+    /// Where the key rotation under way stands.
+    private(set) var rotation: RotationProgress?
+    /// Another device rotated the drive key: the user must sign in again.
+    private(set) var retired = false
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
     private(set) var loginItemNeedsApproval = SMAppService.mainApp.status == .requiresApproval
     private var local: LocalDrive?
@@ -56,9 +67,11 @@ final class AppModel {
     private var collecting: Task<Void, Never>?
     private var collectionStop: Cancellation?
     private var lastCollection: Date?
+    private var retiring: Task<Void, Never>?
+    private var lastRetirement: Date?
 
     var hasDrive: Bool {
-        local != nil
+        local != nil || driveState == .rotating
     }
 
     init() {
@@ -88,13 +101,76 @@ final class AppModel {
 
     func importRecoveryKey(_ recoveryKey: String) async throws {
         let path = try SharedContainer.databaseURL().path(percentEncoded: false)
-        try await setUp(try await LupineCore.importRecoveryKey(path: path, recoveryKey: recoveryKey))
+        let current = try openLocalDrive(path: path).flatMap { try DriveKeychain.secret(drive: $0.info().id) }
+        try await setUp(try await LupineCore.importRecoveryKey(path: path, recoveryKey: recoveryKey, current: current))
     }
 
-    /// The database is set up for `drive`: keep its secret and open it.
+    /// The database is set up for `drive`: keep its secret and open it. A
+    /// secret it replaces waits to retire its key.
     func setUp(_ drive: ImportedDrive) async throws {
+        if let old = try DriveKeychain.secret(drive: drive.id), old != drive.secret {
+            try DriveKeychain.store(secret: old, drive: drive.id, role: .previous)
+        }
         try DriveKeychain.store(secret: drive.secret, drive: drive.id)
+        retired = false
         await openDrive()
+    }
+
+    /// Moves the drive to a new key, which the user signed in as `signIn`
+    /// signs. Returns the new recovery key.
+    func rotateKey(signIn: SignIn) async throws -> String {
+        guard let local, let id = info?.id, let secret = try DriveKeychain.secret(drive: id) else {
+            throw CoreError.Check(message: "No drive is open.")
+        }
+        let next = try await signIn.prepareRotation(drive: local, secret: secret)
+        try DriveKeychain.store(secret: next, drive: id, role: .next)
+        info = try local.info()
+        return try await finishRotation(signIn: signIn)
+    }
+
+    /// Finishes the rotation this Mac started and did not finish.
+    func continueRotation() async throws -> String {
+        try await finishRotation(signIn: nil)
+    }
+
+    /// Gives up the rotation this Mac started, until it announced the new key.
+    func cancelRotation() async {
+        guard let local, let id = info?.id else { return }
+        do {
+            let next = try DriveKeychain.secret(drive: id, role: .next)
+            try await abandonRotation(drive: local, nextSecret: next)
+            try DriveKeychain.delete(drive: id, role: .next)
+        } catch {
+            logger.error("Cancelling the key rotation failed: \(error.localizedDescription, privacy: .public)")
+        }
+        info = try? local.info()
+    }
+
+    /// Syncing stops while the drive moves to the new key, then the drive
+    /// opens again, on the new key once the rotation committed.
+    private func finishRotation(signIn: SignIn?) async throws -> String {
+        guard let local, let id = info?.id, let secret = try DriveKeychain.secret(drive: id),
+              let next = try DriveKeychain.secret(drive: id, role: .next)
+        else {
+            throw CoreError.Check(message: "No key rotation is under way.")
+        }
+        await closeDrive()
+        driveState = .rotating
+        rotation = RotationProgress(label: "Preparing")
+        defer { rotation = nil }
+        do {
+            let report = try await rotateDriveKey(
+                drive: local, secret: secret, nextSecret: next, signIn: signIn, observer: RotationReporter(model: self)
+            )
+            if report.unclaimed > 0 {
+                logger.info("\(report.unclaimed) blob copies stay under the previous drive key")
+            }
+            await openDrive()
+            return report.recoveryKey
+        } catch {
+            await openDrive()
+            throw error
+        }
     }
 
     func recoveryKey() -> String? {
@@ -164,7 +240,9 @@ final class AppModel {
         domainState = .none
         do {
             if let id {
-                try DriveKeychain.delete(drive: id)
+                for role in [DriveKeychain.Role.current, .next, .previous] {
+                    try DriveKeychain.delete(drive: id, role: role)
+                }
             }
             try SharedContainer.removeDatabase()
         } catch {
@@ -191,6 +269,7 @@ final class AppModel {
         fill = nil
         lastFill = nil
         lastCollection = nil
+        lastRetirement = nil
         keptDescriptor = false
         driveState = .none
     }
@@ -205,14 +284,30 @@ final class AppModel {
     private func openDrive() async {
         do {
             let path = try SharedContainer.databaseURL().path(percentEncoded: false)
-            guard let local = try openLocalDrive(path: path),
-                  let secret = try DriveKeychain.secret(drive: local.info().id)
-            else {
+            guard let local = try openLocalDrive(path: path) else {
                 driveState = .none
                 return
             }
+            var info = try local.info()
+            self.info = info
+            if info.nextDriveKey != nil {
+                do {
+                    info = try await pendingRotation(local, info)
+                } catch {
+                    // Settings can continue it.
+                    self.local = local
+                    throw error
+                }
+                self.info = info
+            }
+            guard let secret = try driveSecret(info) else {
+                driveState = .none
+                return
+            }
+            if info.retiringDriveKey == nil {
+                try DriveKeychain.delete(drive: info.id, role: .previous)
+            }
             self.local = local
-            info = try local.info()
             historyDays = try local.historyDays()
             driveState = .opening
             await registerDomain()
@@ -242,6 +337,86 @@ final class AppModel {
             await folders.start()
         } catch {
             fail("Opening the drive failed", error)
+        }
+    }
+
+    /// The secret that opens the drive. Once a rotation moved the database
+    /// to the new key, the new secret becomes current, and the old one
+    /// waits to retire its key.
+    private func driveSecret(_ info: DriveInfo) throws -> String? {
+        let opens = { (secret: String) in (try? LupineCore.driveKey(secret: secret)) == info.driveKey }
+        let current = try DriveKeychain.secret(drive: info.id)
+        if let current, opens(current) {
+            return current
+        }
+        guard let next = try DriveKeychain.secret(drive: info.id, role: .next), opens(next) else {
+            return nil
+        }
+        if let current {
+            try DriveKeychain.store(secret: current, drive: info.id, role: .previous)
+        }
+        try DriveKeychain.store(secret: next, drive: info.id)
+        try DriveKeychain.delete(drive: info.id, role: .next)
+        return next
+    }
+
+    /// A rotation this Mac started: one that announced the new key finishes
+    /// before the drive opens, one whose new secret is lost is given up, and
+    /// any other waits for Settings.
+    private func pendingRotation(_ local: LocalDrive, _ info: DriveInfo) async throws -> DriveInfo {
+        let next = try DriveKeychain.secret(drive: info.id, role: .next)
+        guard info.rotationCommitted else {
+            if next == nil {
+                try await abandonRotation(drive: local, nextSecret: nil)
+            }
+            return try local.info()
+        }
+        guard let next, let current = try DriveKeychain.secret(drive: info.id) else {
+            return info
+        }
+        driveState = .rotating
+        rotation = RotationProgress(label: "Finishing the key change")
+        defer { rotation = nil }
+        _ = try await rotateDriveKey(
+            drive: local, secret: current, nextSecret: next, signIn: nil, observer: RotationReporter(model: self)
+        )
+        return try local.info()
+    }
+
+    fileprivate func rotationProgressed(_ progress: RotationProgress) {
+        if rotation != nil {
+            rotation = progress
+        }
+    }
+
+    /// Another device rotated the drive key: signing in again moves this
+    /// Mac to the new one.
+    fileprivate func driveRetired() {
+        Task {
+            await closeDrive()
+            retired = true
+            showOnboarding()
+        }
+    }
+
+    /// Deletes the wraps of the key a rotation retired, once the session
+    /// synced every relay. Tries again after an hour.
+    fileprivate func startRetirement() {
+        guard retiring == nil, let local, let id = info?.id, info?.retiringDriveKey != nil,
+              lastRetirement.map({ $0.timeIntervalSinceNow < -3600 }) ?? true
+        else { return }
+        let previous = try? DriveKeychain.secret(drive: id, role: .previous)
+        lastRetirement = Date()
+        retiring = Task {
+            do {
+                if try await retireDriveKey(drive: local, previousSecret: previous) {
+                    try DriveKeychain.delete(drive: id, role: .previous)
+                }
+            } catch {
+                logger.error("Retiring the previous drive key failed: \(error.localizedDescription, privacy: .public)")
+            }
+            retiring = nil
+            info = try? self.local?.info()
         }
     }
 
@@ -408,8 +583,13 @@ private final class SyncReporter: SyncObserver {
             if failed.isEmpty {
                 $0.startFill()
                 $0.startCollection()
+                $0.startRetirement()
             }
         }
+    }
+
+    func retired() {
+        onMain { $0.driveRetired() }
     }
 
     func listsChanged() {
@@ -430,6 +610,31 @@ private final class SyncReporter: SyncObserver {
         let model = model
         DispatchQueue.main.async {
             MainActor.assumeIsolated { update(model) }
+        }
+    }
+}
+
+private final class RotationReporter: RotationObserver {
+    private let model: AppModel
+
+    init(model: AppModel) {
+        self.model = model
+    }
+
+    func progressed(stage: RotationStage) {
+        let progress = switch stage {
+        case .lists: AppModel.RotationProgress(label: "Announcing the new key")
+        case .claiming(let done, let total):
+            AppModel.RotationProgress(label: "Asking the servers to keep the files", done: done, total: total)
+        case .wrapping(let done, let total):
+            AppModel.RotationProgress(label: "Encrypting the drive for the new key", done: done, total: total)
+        case .sending: AppModel.RotationProgress(label: "Sending it to the relays")
+        case .publishing: AppModel.RotationProgress(label: "Publishing the new key")
+        case .moving: AppModel.RotationProgress(label: "Updating this Mac")
+        }
+        let model = model
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { model.rotationProgressed(progress) }
         }
     }
 }

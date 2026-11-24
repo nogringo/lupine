@@ -30,7 +30,7 @@ use crate::items::{self, Item, ItemChanges};
 use crate::names;
 use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::replica::{Record, WrapState};
-use crate::store::{Store, Writer};
+use crate::store::{Store, Writer, Written};
 use crate::task::blocking;
 use crate::tree::EntryKind;
 
@@ -455,14 +455,15 @@ impl<S: BlobStore> ItemWriter<S> {
             referenced: Vec::new(),
         };
         let value = change(&mut batch)?;
-        self.store.commit_outbox(
-            self.writer,
-            &batch.records,
-            batch.clock,
-            &batch.items,
-            &batch.outbox,
-            &batch.referenced,
-        )?;
+        self.store.commit_outbox(Written {
+            writer: self.writer,
+            drive: &self.keys.public_key(),
+            records: &batch.records,
+            clock: batch.clock,
+            items: &batch.items,
+            outbox: &batch.outbox,
+            referenced: &batch.referenced,
+        })?;
         Ok(value)
     }
 

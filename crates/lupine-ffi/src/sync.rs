@@ -25,6 +25,10 @@ pub trait SyncObserver: Send + Sync {
     fn lists_changed(&self);
     /// The File Provider extension should enumerate changes.
     fn items_changed(&self);
+    /// A key rotation made elsewhere retired the drive key: following
+    /// stopped, and the drive needs the user's key, or a new recovery key,
+    /// to open again.
+    fn retired(&self);
 }
 
 #[derive(uniffi::Object)]
@@ -69,6 +73,7 @@ impl DriveSync {
                 Followed::Compacted(wraps) => observer.compacted(wraps as u64),
                 Followed::ListsChanged => observer.lists_changed(),
                 Followed::ItemsChanged => observer.items_changed(),
+                Followed::Retired => observer.retired(),
             })
             .await;
         session.shutdown().await;

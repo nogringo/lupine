@@ -53,6 +53,11 @@ pub enum Error {
     DriveFolderMissing,
     #[error("{0}")]
     FolderOverlap(&'static str),
+    /// A key rotation moved the drive to a new key: open it again.
+    #[error("the drive key changed")]
+    DriveKeyChanged,
+    #[error("{0}")]
+    Rotation(&'static str),
     #[error("local database: {0}")]
     Database(#[from] rusqlite::Error),
     #[error(transparent)]
@@ -66,7 +71,10 @@ impl Error {
     /// server is overloaded or down.
     pub fn is_transient(&self) -> bool {
         match self {
-            Self::Network { .. } | Self::Relay { .. } | Self::NotPublished(_) => true,
+            Self::Network { .. }
+            | Self::Relay { .. }
+            | Self::NotPublished(_)
+            | Self::DriveKeyChanged => true,
             Self::Http { status, .. } => matches!(status, 408 | 429 | 500 | 502 | 503 | 504),
             _ => false,
         }

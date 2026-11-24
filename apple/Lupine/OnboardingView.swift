@@ -58,6 +58,11 @@ private struct WelcomeStep: View {
 
     var body: some View {
         Text("Welcome to Lupine").font(.title2.bold())
+        if let notice = onboarding.notice {
+            Text(notice)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         Text("An end-to-end encrypted drive on Nostr. Sign in with your Nostr account to open your drive, or to create one.")
             .fixedSize(horizontal: false, vertical: true)
 
@@ -112,7 +117,7 @@ private struct WelcomeStep: View {
     }
 }
 
-private struct PairingStep: View {
+struct PairingStep: View {
     let link: String
     let back: () -> Void
 

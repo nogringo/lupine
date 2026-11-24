@@ -10,8 +10,11 @@ struct StatusView: View {
                 LabeledContent("Finder", value: domainLabel)
                 LabeledContent("Drive", value: driveLabel)
             } else {
-                Text("Sign in to open your drive, or to create one.")
+                Text(model.retired
+                    ? "The drive key changed on another device. Sign in again to keep using the drive."
+                    : "Sign in to open your drive, or to create one.")
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button("Sign In...") { model.showOnboarding() }
             }
             if let folders = model.folders {
@@ -42,6 +45,7 @@ struct StatusView: View {
         case .syncing: "Syncing"
         case .synced(0): "Up to date"
         case .synced(let failed): "\(failed) relays unreachable"
+        case .rotating: model.rotation?.label ?? "Changing its key"
         case .failed(let message): message
         }
     }

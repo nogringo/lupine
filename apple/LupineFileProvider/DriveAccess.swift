@@ -2,8 +2,8 @@ import FileProvider
 import LupineCore
 
 /// Opens the drive on first use, since the app may set it up after the
-/// extension started. The reader and the writer follow the drive's servers,
-/// which the app may change.
+/// extension started. The reader and the writer follow the drive's servers
+/// and key, which the app may change.
 final class DriveAccess: @unchecked Sendable {
     private let domain: String
     private let lock = NSLock()
@@ -52,7 +52,7 @@ final class DriveAccess: @unchecked Sendable {
         guard let secret = try DriveKeychain.secret(drive: info.id) else {
             throw NSFileProviderError(.notAuthenticated)
         }
-        return (local, secret, [info.servers, info.leaving])
+        return (local, secret, [info.servers, info.leaving, [info.driveKey]])
     }
 
     private func openDrive() throws -> LocalDrive? {

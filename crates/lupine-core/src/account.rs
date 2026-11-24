@@ -14,6 +14,7 @@ use nostr::types::RelayUrl;
 use crate::descriptor::{self, DESCRIPTOR_KIND, Descriptor, FoundDrive, UserSigner};
 use crate::drive::DriveKeys;
 use crate::error::{Error, Result};
+use crate::ids::DriveId;
 use crate::lists::{Latest, check_servers};
 use crate::relays::{Relays, Sent};
 use crate::store::Store;
@@ -154,6 +155,20 @@ impl<S: UserSigner> Account<S> {
             }
         }
         Ok(descriptor::current(found).0)
+    }
+
+    /// Every descriptor of the drive `id` on the user's relays.
+    pub async fn descriptors(&self, id: DriveId) -> Result<Vec<FoundDrive>> {
+        let filter = Filter::new().kind(DESCRIPTOR_KIND).author(self.user);
+        let mut found = Vec::new();
+        for event in self.relays.query(&filter).await? {
+            if let Some(descriptor) = Descriptor::open(&*self.signer, &event).await?
+                && descriptor.id == id
+            {
+                found.push(FoundDrive { event, descriptor });
+            }
+        }
+        Ok(found)
     }
 
     /// The user's own inbox relays (kind 10050) and Blossom servers (kind

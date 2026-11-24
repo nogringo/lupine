@@ -20,7 +20,7 @@ use tokio::sync::Notify;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::content::{ContentDescriptor, FileKey};
-use crate::drive::DriveKeys;
+use crate::drive::{self, DriveKeys};
 use crate::error::{Error, Result};
 use crate::ids::{NodeId, VersionId};
 use crate::items::{self, Item};
@@ -54,6 +54,8 @@ pub struct SyncReport {
     pub received: usize,
     /// Events sent to relays that lacked them.
     pub repaired: usize,
+    /// Copies of events that relays lacked: those sent, and those refused.
+    pub lacking: usize,
     /// Wraps the extension wrote that relays took, out of the outbox.
     pub sent: usize,
     /// Relays that could not be synced. Their repairs wait for a sync that
@@ -62,6 +64,9 @@ pub struct SyncReport {
     /// Lists another device published, applied to the local database. The
     /// session still uses the relays it opened with.
     pub lists: Changed,
+    /// A key rotation retired the drive key: nothing was downloaded, and
+    /// the drive needs the user's key, or a new recovery key, again.
+    pub retired: bool,
 }
 
 #[derive(Debug)]
@@ -83,6 +88,8 @@ pub enum Followed<'a> {
     /// Another device changed the drive's relays or servers: reopen what
     /// uses them.
     ListsChanged,
+    /// A key rotation retired the drive key. Following stopped.
+    Retired,
     /// The items shown changed: file system integrations should look.
     ItemsChanged,
 }
@@ -106,6 +113,7 @@ enum Ended {
     Stopped,
     Resync,
     Closed,
+    Retired,
 }
 
 impl DriveSession {
@@ -196,35 +204,60 @@ impl DriveSession {
             .author(self.public_key())
     }
 
+    fn vanish(&self) -> Filter {
+        Filter::new()
+            .kind(Kind::RequestToVanish)
+            .author(self.public_key())
+    }
+
+    fn vanished(&self, events: &[Event]) -> bool {
+        events
+            .iter()
+            .any(|event| drive::vanished(&self.public_key(), event))
+    }
+
     /// Reconciles with every drive relay: takes in and sends what the
     /// extension wrote, downloads what this device lacks, deletions first,
     /// then sends each relay the wraps it lacks and the deletions of wraps
-    /// it still holds.
+    /// it still holds. Stops before applying anything when a key rotation
+    /// retired the drive key.
     pub async fn sync(&mut self) -> Result<SyncReport> {
-        let sent = self.take_in().await?;
-        let (wraps, deletions) = (self.wraps(), self.deletions());
+        let outbox = self.absorb()?;
+        let (wraps, deletions, vanish) = (self.wraps(), self.deletions(), self.vanish());
         let wrap_items = self.replica.wrap_items();
         let deletion_items = self.replica.deletion_items();
         let urls = self.relays.urls().to_vec();
         let relays = &self.relays;
         let comparisons = join_all(urls.iter().map(|url| async {
             let deletions = relays.compare(url, &deletions, &deletion_items).await?;
+            // A rotation publishes the request to vanish before deleting the
+            // old key's wraps: looking after listing the deletions sees it.
+            let vanished = relays.events(url, &vanish).await?;
             let wraps = relays.compare(url, &wraps, &wrap_items).await?;
-            Ok::<_, Error>((deletions, wraps))
+            Ok::<_, Error>((deletions, vanished, wraps))
         }))
         .await;
 
-        let mut report = SyncReport {
-            sent,
-            ..SyncReport::default()
-        };
+        let mut report = SyncReport::default();
         let mut synced = Vec::new();
         for (url, comparison) in urls.into_iter().zip(comparisons) {
             match comparison {
-                Ok((deletions, wraps)) => synced.push((url, deletions, wraps)),
+                Ok((deletions, vanished, wraps)) => {
+                    report.retired |= self.vanished(&vanished);
+                    synced.push((url, deletions, wraps));
+                }
                 Err(e) => report.failed.push((url, e)),
             }
         }
+        if report.retired {
+            return Ok(report);
+        }
+        // The comparisons ran before they left: the next sync repairs them.
+        let outgoing: HashSet<EventId> = outbox
+            .iter()
+            .filter_map(|o| o.event.as_ref().map(|event| event.id))
+            .collect();
+        report.sent = self.send_outbox(outbox).await?;
 
         let by_deletions = synced.iter_mut().map(|(url, d, _)| (&*url, d)).collect();
         self.download(&deletions, by_deletions, &mut report).await;
@@ -247,7 +280,7 @@ impl DriveSession {
             self.synced = true;
         }
         self.persist(newly_synced)?;
-        report.repaired = self.send_repairs(&holdings).await?;
+        (report.lacking, report.repaired) = self.send_repairs(&holdings, &outgoing).await?;
         if !holdings.relays.is_empty()
             && let Ok(latest) = Latest::find(&self.relays, self.public_key()).await
         {
@@ -299,15 +332,21 @@ impl DriveSession {
             .extend(self.replica.insert(&self.keys, event));
     }
 
-    /// The outbox keeps its own order: its wraps are not repaired.
-    async fn send_repairs(&self, holdings: &Holdings) -> Result<usize> {
+    /// The outbox keeps its own order: its wraps are not repaired. Returns
+    /// the copies relays lacked, and those they took.
+    async fn send_repairs(
+        &self,
+        holdings: &Holdings,
+        outgoing: &HashSet<EventId>,
+    ) -> Result<(usize, usize)> {
         let unsent = self.store.outbox_wraps()?;
         let mut by_event: HashMap<EventId, Vec<RelayUrl>> = HashMap::new();
         for (relay, id) in self.replica.repairs(holdings) {
-            if !unsent.contains(&id) {
+            if !unsent.contains(&id) && !outgoing.contains(&id) {
                 by_event.entry(id).or_default().push(relay);
             }
         }
+        let lacking = by_event.values().map(Vec::len).sum();
         let ids: Vec<EventId> = by_event.keys().copied().collect();
         let events = self.store.events(&ids)?;
         let sent = stream::iter(events)
@@ -318,7 +357,7 @@ impl DriveSession {
             .buffer_unordered(SEND_CONCURRENCY)
             .fold(0, |total, accepted| async move { total + accepted })
             .await;
-        Ok(sent)
+        Ok((lacking, sent))
     }
 
     /// New wraps and deletions as relays receive them. Pass each to
@@ -326,7 +365,7 @@ impl DriveSession {
     /// with the next [`sync`](Self::sync).
     pub async fn watch(&self) -> Result<impl Stream<Item = Event> + Send + use<>> {
         self.relays
-            .subscribe(vec![self.wraps(), self.deletions()])
+            .subscribe(vec![self.wraps(), self.deletions(), self.vanish()])
             .await
     }
 
@@ -431,6 +470,10 @@ impl DriveSession {
             }
             report(Followed::Syncing);
             let synced = self.sync().await?;
+            if synced.retired {
+                report(Followed::Retired);
+                return Ok(());
+            }
             report(Followed::Synced(&synced));
             if synced.lists.any() {
                 report(Followed::ListsChanged);
@@ -465,6 +508,10 @@ impl DriveSession {
                 Ended::Stopped => return Ok(()),
                 Ended::Resync => {}
                 Ended::Closed => live = None,
+                Ended::Retired => {
+                    report(Followed::Retired);
+                    return Ok(());
+                }
             }
         }
     }
@@ -500,6 +547,31 @@ impl DriveSession {
                         Some(event) => batch.push(event),
                         None => break,
                     },
+                }
+            }
+            if self.vanished(&batch) {
+                return Ok(Ended::Retired);
+            }
+            // The request to vanish may have come while disconnected. Every
+            // relay must answer: the one that has it may be the one that
+            // fails. Otherwise the next sync brings the batch again.
+            if batch.iter().any(|event| event.kind == Kind::EventDeletion) {
+                let vanish = self.vanish();
+                let relays = &self.relays;
+                let answers = join_all(relays.urls().iter().map(|url| relays.events(url, &vanish)));
+                let mut retired = false;
+                let mut answered = true;
+                for answer in answers.await {
+                    match answer {
+                        Ok(found) => retired |= self.vanished(&found),
+                        Err(_) => answered = false,
+                    }
+                }
+                if retired {
+                    return Ok(Ended::Retired);
+                }
+                if !answered {
+                    continue;
                 }
             }
             self.receive(&batch)?;

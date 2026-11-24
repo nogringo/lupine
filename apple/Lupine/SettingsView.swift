@@ -3,11 +3,19 @@ import LupineCore
 import SwiftUI
 
 struct SettingsView: View {
+    enum Rotation: Identifiable {
+        case start
+        case resume
+
+        var id: Self { self }
+    }
+
     let model: AppModel
     @State private var recoveryKey: String?
     @State private var confirmsSignOut = false
     @State private var unsent: UInt64 = 0
     @State private var editsLists = false
+    @State private var rotation: Rotation?
 
     var body: some View {
         Form {
@@ -77,6 +85,35 @@ struct SettingsView: View {
                     Text("Opens the drive without your Nostr key. Anyone who has it can read and change everything.")
                         .foregroundStyle(.secondary)
                 }
+                Section {
+                    if let progress = model.rotation {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("\(progress.label)...")
+                        }
+                    } else if info.nextDriveKey != nil {
+                        Text(info.rotationCommitted
+                            ? "The new key is announced: Lupine finishes the change."
+                            : "A change of the drive key did not finish.")
+                        HStack {
+                            Spacer()
+                            if !info.rotationCommitted {
+                                Button("Cancel Change") { Task { await model.cancelRotation() } }
+                            }
+                            Button("Continue") { rotation = .resume }
+                        }
+                    } else {
+                        HStack {
+                            Spacer()
+                            Button("Change Drive Key...") { rotation = .start }
+                        }
+                    }
+                } header: {
+                    Text("Drive Key")
+                } footer: {
+                    Text("A new key locks out a lost device and the current recovery key. Your other devices then ask you to sign in again.")
+                        .foregroundStyle(.secondary)
+                }
             }
             Section("General") {
                 Toggle("Open Lupine at login", isOn: Binding(
@@ -110,6 +147,9 @@ struct SettingsView: View {
             if let info = model.info {
                 ListsEditor(model: model, info: info)
             }
+        }
+        .sheet(item: $rotation) { rotation in
+            KeyRotationView(app: model, resuming: rotation == .resume)
         }
         .alert("Sign out of Lupine on this Mac?", isPresented: $confirmsSignOut) {
             Button("Sign Out", role: .destructive) {

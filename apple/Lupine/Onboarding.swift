@@ -39,6 +39,13 @@ final class Onboarding {
         !ListEditor.entries(relays).isEmpty && !ListEditor.entries(servers).isEmpty
     }
 
+    /// Why the user signs in again.
+    var notice: String? {
+        app.retired
+            ? "The drive key changed on another device. Sign in again, or use the new recovery key, to keep using the drive on this Mac."
+            : nil
+    }
+
     /// An nsec or a `bunker://` link.
     func signIn(key: String) {
         perform("Signing in", failing: .welcome) {
@@ -71,7 +78,8 @@ final class Onboarding {
         guard let session else { return }
         perform("Opening \(drive.name)", failing: .chooseDrive) {
             let path = try SharedContainer.databaseURL().path(percentEncoded: false)
-            let opened = try await session.openDrive(path: path, id: drive.id)
+            let current = try DriveKeychain.secret(drive: drive.id)
+            let opened = try await session.openDrive(path: path, id: drive.id, current: current)
             try Task.checkCancellation()
             try await self.app.setUp(opened)
             await self.closeSession()
@@ -192,7 +200,7 @@ final class Onboarding {
 }
 
 /// Opens the page where a remote signer asks the user to approve Lupine.
-private final class SignerPage: SignerApproval, Sendable {
+final class SignerPage: SignerApproval, Sendable {
     func openUrl(url: String) {
         guard let url = URL(string: url) else { return }
         DispatchQueue.main.async {

@@ -32,14 +32,17 @@ pub(crate) struct Nip59Store {
     deleted: Mutex<HashSet<EventId>>,
     /// Named by a deletion before they arrived, with who deleted them.
     pending: Mutex<HashMap<EventId, PublicKey>>,
+    /// Taken, but not kept.
+    forgotten: &'static [Kind],
 }
 
 impl Nip59Store {
-    fn new() -> Self {
+    fn new(forgotten: &'static [Kind]) -> Self {
         Self {
             inner: MemoryDatabase::builder().process_nip09(false).build(),
             deleted: Mutex::default(),
             pending: Mutex::default(),
+            forgotten,
         }
     }
 
@@ -65,6 +68,9 @@ impl NostrDatabase for Nip59Store {
                 || deleter.is_some_and(|d| Self::may_delete(event, &d));
             if refused {
                 return Ok(SaveEventStatus::Rejected(RejectedReason::Deleted));
+            }
+            if self.forgotten.contains(&event.kind) {
+                return Ok(SaveEventStatus::Success);
             }
             if event.kind == Kind::EventDeletion {
                 for id in event.tags.event_ids() {
@@ -132,7 +138,19 @@ impl TestRelay {
     }
 
     pub async fn with(configure: impl FnOnce(LocalRelayBuilder) -> LocalRelayBuilder) -> Self {
-        let store = Arc::new(Nip59Store::new());
+        Self::build(&[], configure).await
+    }
+
+    /// Takes the events of `kinds` without keeping them.
+    pub async fn forgetting(kinds: &'static [Kind]) -> Self {
+        Self::build(kinds, |builder| builder).await
+    }
+
+    async fn build(
+        forgotten: &'static [Kind],
+        configure: impl FnOnce(LocalRelayBuilder) -> LocalRelayBuilder,
+    ) -> Self {
+        let store = Arc::new(Nip59Store::new(forgotten));
         let builder = LocalRelay::builder()
             .database(Arc::clone(&store))
             .auth_dm(true);

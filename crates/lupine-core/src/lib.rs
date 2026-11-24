@@ -23,6 +23,7 @@ pub mod names;
 pub mod node;
 pub mod relays;
 pub mod replica;
+pub mod rotation;
 pub mod session;
 pub mod store;
 mod task;

@@ -101,6 +101,11 @@ pub async fn change(
     let drive = store
         .drive()?
         .ok_or(Error::Malformed("no drive in the local database"))?;
+    if store.rotation()?.is_some() {
+        return Err(Error::Rotation(
+            "finish or cancel the change of the drive key first",
+        ));
+    }
     let origins = |servers: &[String]| {
         servers
             .iter()

@@ -13,6 +13,7 @@ mod folders;
 mod lists;
 mod local;
 mod reader;
+mod rotation;
 mod sync;
 mod writer;
 

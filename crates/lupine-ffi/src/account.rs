@@ -6,12 +6,13 @@ use std::sync::{Arc, Mutex};
 use lupine_core::account::{Account, Discovery};
 use lupine_core::descriptor::FoundDrive;
 use lupine_core::identity::{NOSTR_CONNECT_RELAYS, OpenUrl, UserKey};
+use lupine_core::rotation;
 use lupine_core::store::{DescriptorRecord, DriveRecord};
 use nostr::nips::nip19::ToBech32;
 use nostr::types::RelayUrl;
 
 use crate::CoreError;
-use crate::local::{ImportedDrive, set_up};
+use crate::local::{ImportedDrive, LocalDrive, set_up};
 use crate::reader::Cancellation;
 
 #[uniffi::export(callback_interface)]
@@ -107,6 +108,10 @@ impl SignerPairing {
 }
 
 impl SignIn {
+    pub(crate) fn account(&self) -> &Account<UserKey> {
+        &self.account
+    }
+
     async fn new(key: UserKey) -> Result<Arc<Self>, CoreError> {
         let key = Arc::new(key);
         match Account::sign_in(Arc::clone(&key), &Discovery::default()).await {
@@ -121,11 +126,12 @@ impl SignIn {
         }
     }
 
-    fn set_up(
+    async fn set_up(
         &self,
         path: &str,
         found: &FoundDrive,
         lists: lupine_core::account::DriveLists,
+        current: Option<&str>,
     ) -> Result<ImportedDrive, CoreError> {
         let descriptor = &found.descriptor;
         let record = DriveRecord {
@@ -140,7 +146,8 @@ impl SignIn {
             name: descriptor.name.clone(),
             user_relays: self.account.relays().urls().to_vec(),
         };
-        set_up(path, &record, Some(&kept))?;
+        let keys = descriptor.keys();
+        set_up(path, &record, Some(&kept), &keys, current).await?;
         Ok(ImportedDrive {
             id: descriptor.id.to_hex(),
             secret: descriptor.secret.to_secret_hex(),
@@ -185,7 +192,14 @@ impl SignIn {
     }
 
     /// Sets up the database at `path` for drive `id` of [`drives`](Self::drives).
-    pub async fn open_drive(&self, path: String, id: String) -> Result<ImportedDrive, CoreError> {
+    /// `current` is the secret the database is on, which a key rotation
+    /// made elsewhere needs to keep what only this device holds.
+    pub async fn open_drive(
+        &self,
+        path: String,
+        id: String,
+        current: Option<String>,
+    ) -> Result<ImportedDrive, CoreError> {
         let found = self
             .found
             .lock()
@@ -195,7 +209,7 @@ impl SignIn {
             .cloned()
             .ok_or(CoreError::NoSuchItem)?;
         let lists = self.account.open(&found).await?;
-        self.set_up(&path, &found, lists)
+        self.set_up(&path, &found, lists, current.as_deref()).await
     }
 
     /// Creates a drive and sets up the database at `path` for it. Relay and
@@ -213,7 +227,20 @@ impl SignIn {
             name => name,
         };
         let (found, lists) = self.account.create_drive(name, &relays, &servers).await?;
-        self.set_up(&path, &found, lists)
+        self.set_up(&path, &found, lists, None).await
+    }
+
+    /// Starts a key rotation of `drive`, whose secret is `secret`: signs
+    /// the new key's descriptor. Returns the new secret, to keep before
+    /// [`rotate_drive_key`](crate::rotation::rotate_drive_key).
+    pub async fn prepare_rotation(
+        &self,
+        drive: Arc<LocalDrive>,
+        secret: String,
+    ) -> Result<String, CoreError> {
+        let keys = drive.keys(&secret)?;
+        let next = rotation::prepare(&drive.store, &keys, &self.account).await?;
+        Ok(next.to_secret_hex())
     }
 
     pub async fn close(&self) {

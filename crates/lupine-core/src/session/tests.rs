@@ -535,6 +535,44 @@ async fn following_compacts_once_every_relay_is_synced() {
     following.await.unwrap().unwrap();
 }
 
+#[tokio::test]
+async fn a_retired_key_stops_following_before_its_deletions() {
+    let a = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let mut first = device(&drive, &[&a]).await;
+    let (_, photos) = first.create_folder(None, "Photos").await.unwrap();
+    let mut follower = device(&drive, &[&a]).await;
+    synced(&mut follower).await;
+    let (seen, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let following = tokio::spawn(async move {
+        let followed = follower
+            .follow(
+                std::future::pending(),
+                &Notify::new(),
+                |event| match event {
+                    Followed::Synced(_) => seen.send(false).unwrap(),
+                    Followed::Retired => seen.send(true).unwrap(),
+                    _ => {}
+                },
+            )
+            .await;
+        (follower, followed)
+    });
+    assert_eq!(events.recv().await, Some(false));
+
+    let vanish = drive.vanish([a.url.clone()]).unwrap();
+    assert!(!first.relays().send_all(&vanish).await.accepted.is_empty());
+    let deletion = drive.deletions([photos.wrap]).unwrap().remove(0);
+    assert!(!first.relays().send_all(&deletion).await.accepted.is_empty());
+    let retired = tokio::time::timeout(Duration::from_secs(5), events.recv())
+        .await
+        .expect("the session sees the request to vanish");
+    assert_eq!(retired, Some(true));
+    let (follower, followed) = following.await.unwrap();
+    followed.unwrap();
+    assert_eq!(listing(&follower), ["Photos"]);
+}
+
 fn extension(drive: &DriveKeys, store: &Arc<Store>) -> ItemWriter<MemoryBlobStore> {
     let keys = DriveKeys::from_secret(drive.keys().secret_key().clone());
     ItemWriter::new(Arc::clone(store), keys, MemoryBlobStore::new()).unwrap()

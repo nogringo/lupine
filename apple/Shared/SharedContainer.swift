@@ -22,7 +22,7 @@ enum SharedContainer {
 
     static func removeDatabase(domain: String = domainIdentifier) throws {
         let path = try databaseURL(domain: domain).path(percentEncoded: false)
-        for suffix in ["", "-wal", "-shm"] {
+        for suffix in ["", "-wal", "-shm", "-rotation", "-rotation-wal", "-rotation-shm"] {
             do {
                 try FileManager.default.removeItem(atPath: path + suffix)
             } catch CocoaError.fileNoSuchFile {}

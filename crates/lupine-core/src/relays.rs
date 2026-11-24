@@ -196,6 +196,21 @@ impl Relays {
         Ok(events)
     }
 
+    /// The events matching `filter` on the relay `url`, one page of them,
+    /// once the relay said it sent them all: a fetch that times out fails
+    /// rather than return what came so far.
+    pub async fn events(&self, url: &RelayUrl, filter: &Filter) -> Result<Vec<Event>> {
+        let relay = self.relay(url).await?;
+        let fetch = relay.fetch_events(filter.clone().limit(PAGE));
+        match tokio::time::timeout(FETCH_TIMEOUT, fetch).await {
+            Ok(found) => Ok(found
+                .map_err(|e| relay_error(url, e))?
+                .into_iter()
+                .collect()),
+            Err(_) => Err(relay_error(url, "no answer in time")),
+        }
+    }
+
     /// Every event matching `filter` on every relay, deduplicated. Fails
     /// only when no relay answers.
     pub async fn query(&self, filter: &Filter) -> Result<Vec<Event>> {
