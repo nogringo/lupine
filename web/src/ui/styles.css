@@ -830,6 +830,18 @@ dialog.viewer::backdrop {
   object-fit: contain;
 }
 
+.viewer-stage audio {
+  width: min(32rem, 100%);
+}
+
+.viewer-stage iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
 .viewer-note {
   display: grid;
   justify-items: center;

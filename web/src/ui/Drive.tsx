@@ -2,7 +2,7 @@ import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from 
 import { lupine, save } from "../lib/client";
 import { dropped, picked } from "../lib/drop";
 import { bytes, date, message } from "../lib/format";
-import { viewable } from "../lib/media";
+import { type Viewable, viewable } from "../lib/media";
 import { folded } from "../lib/names";
 import type { Collision, DriveItem, OpenDrive, Upload } from "../lib/state";
 import { ConfirmDialog, Copy, Modal, NameDialog, useDismiss } from "./dialogs";
@@ -24,7 +24,7 @@ type Dialog =
   | { kind: "delete"; item: DriveItem }
   | { kind: "collision"; uploads: Upload[]; conflicts: number }
   | { kind: "settings" }
-  | { kind: "view"; item: DriveItem };
+  | { kind: "view"; item: DriveItem; media: Viewable };
 
 type SortKey = "name" | "size" | "modified";
 
@@ -89,8 +89,9 @@ export function Drive({
   const download = (item: DriveItem) => act(async () => save(await lupine.download(item)));
 
   const activate = (item: DriveItem) => {
+    const media = viewable(item.name);
     if (item.isFolder) open(item.id);
-    else if (viewable(item.name)) setDialog({ kind: "view", item });
+    else if (media) setDialog({ kind: "view", item, media });
     else download(item);
   };
 
@@ -435,7 +436,7 @@ export function Drive({
       )}
       {dialog?.kind === "settings" && <Settings drive={drive} onClose={() => setDialog(undefined)} />}
       {dialog?.kind === "view" && (
-        <Viewer item={dialog.item} transfers={drive.transfers} onClose={() => setDialog(undefined)} />
+        <Viewer item={dialog.item} media={dialog.media} transfers={drive.transfers} onClose={() => setDialog(undefined)} />
       )}
       {newRecoveryKey && !dialog && (
         <Modal title="Save your recovery key" onClose={onRecoveryKeySaved}>
