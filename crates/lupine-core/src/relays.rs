@@ -14,6 +14,7 @@ use futures::future::join_all;
 use futures::{Stream, StreamExt};
 use nostr::event::{Event, EventId, FinalizeEventAsync};
 use nostr::filter::Filter;
+use nostr::key::Keys;
 use nostr::message::SubscriptionId;
 use nostr::nips::nip42::ClientAuthentication;
 use nostr::types::{RelayUrl, Timestamp};
@@ -76,11 +77,12 @@ impl Relays {
         keys: &DriveKeys,
         urls: impl IntoIterator<Item = RelayUrl>,
     ) -> Result<Self> {
-        Self::connect(
-            authenticated(SignerAuthenticator::new(keys.keys().clone())),
-            urls,
-        )
-        .await
+        Self::for_keys(keys.keys(), urls).await
+    }
+
+    /// Signs AUTH with `keys`, such as a share link's reader key.
+    pub async fn for_keys(keys: &Keys, urls: impl IntoIterator<Item = RelayUrl>) -> Result<Self> {
+        Self::connect(authenticated(SignerAuthenticator::new(keys.clone())), urls).await
     }
 
     /// Signs AUTH with the user's key, when a relay asks.

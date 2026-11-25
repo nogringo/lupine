@@ -1,15 +1,17 @@
 import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { lupine, save } from "../lib/client";
+import { lupine } from "../lib/client";
 import { dropped, picked } from "../lib/drop";
 import { bytes, date, message } from "../lib/format";
 import { type Viewable, viewable } from "../lib/media";
 import { folded } from "../lib/names";
+import { save } from "../lib/save";
 import type { Collision, DriveItem, OpenDrive, Upload } from "../lib/state";
 import { ConfirmDialog, Copy, Modal, NameDialog, useDismiss } from "./dialogs";
 import { Mark } from "./Flower";
 import { FileIcon, FolderIcon, MoreIcon } from "./icons";
 import { MoveDialog } from "./MoveDialog";
 import { Settings } from "./Settings";
+import { ShareDialog } from "./ShareDialog";
 import { Status } from "./Status";
 import { Transfers } from "./Transfers";
 import { Viewer } from "./Viewer";
@@ -44,6 +46,8 @@ export function Drive({
   const [selected, setSelected] = useState<string>();
   const [menu, setMenu] = useState<{ item: DriveItem; x: number; y: number }>();
   const [dialog, setDialog] = useState<Dialog>();
+  /** Apart from `dialog`, so the viewer stays open under it. */
+  const [sharing, setSharing] = useState<DriveItem>();
   const [failure, setFailure] = useState<string>();
   const [filesOver, setFilesOver] = useState(false);
   /** A folder row, or a breadcrumb (the root as ""), under a drag. */
@@ -354,6 +358,7 @@ export function Drive({
           onClose={() => setMenu(undefined)}
           onOpen={() => activate(menu.item)}
           onDownload={() => download(menu.item)}
+          onShare={() => setSharing(menu.item)}
           onRename={() => setDialog({ kind: "rename", item: menu.item })}
           onMove={() => setDialog({ kind: "move", item: menu.item })}
           onDelete={() => setDialog({ kind: "delete", item: menu.item })}
@@ -436,8 +441,15 @@ export function Drive({
       )}
       {dialog?.kind === "settings" && <Settings drive={drive} onClose={() => setDialog(undefined)} />}
       {dialog?.kind === "view" && (
-        <Viewer item={dialog.item} media={dialog.media} transfers={drive.transfers} onClose={() => setDialog(undefined)} />
+        <Viewer
+          item={dialog.item}
+          media={dialog.media}
+          transfers={drive.transfers}
+          onShare={() => setSharing(dialog.item)}
+          onClose={() => setDialog(undefined)}
+        />
       )}
+      {sharing && <ShareDialog item={sharing} onClose={() => setSharing(undefined)} />}
       {newRecoveryKey && !dialog && (
         <Modal title="Save your recovery key" onClose={onRecoveryKeySaved}>
           <p>It opens this drive without your Nostr key, on any device. Keep it somewhere safe: anyone who has it can read the drive.</p>
@@ -461,6 +473,7 @@ function ItemMenu({
   onClose,
   onOpen,
   onDownload,
+  onShare,
   onRename,
   onMove,
   onDelete,
@@ -471,6 +484,7 @@ function ItemMenu({
   onClose: () => void;
   onOpen: () => void;
   onDownload: () => void;
+  onShare: () => void;
   onRename: () => void;
   onMove: () => void;
   onDelete: () => void;
@@ -489,7 +503,7 @@ function ItemMenu({
       ref={ref}
       className="menu"
       role="menu"
-      style={{ left: Math.max(8, x - 176), top: Math.min(y, window.innerHeight - 220) }}
+      style={{ left: Math.max(8, x - 176), top: Math.min(y, window.innerHeight - 260) }}
     >
       {(item.isFolder || viewable(item.name)) && (
         <button role="menuitem" onClick={choose(onOpen)}>
@@ -497,9 +511,14 @@ function ItemMenu({
         </button>
       )}
       {!item.isFolder && (
-        <button role="menuitem" onClick={choose(onDownload)}>
-          Download
-        </button>
+        <>
+          <button role="menuitem" onClick={choose(onDownload)}>
+            Download
+          </button>
+          <button role="menuitem" onClick={choose(onShare)}>
+            Share link...
+          </button>
+        </>
       )}
       <button role="menuitem" onClick={choose(onRename)}>
         Rename

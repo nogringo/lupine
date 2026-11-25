@@ -6,6 +6,7 @@ use std::sync::Arc;
 use js_sys::Function;
 use lupine_core::blossom::BlossomStore;
 use lupine_core::ids::NodeId;
+use lupine_core::share::{self, Shown};
 use lupine_core::writer::{self as core_writer, Contents, Edit, Place};
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -14,6 +15,7 @@ use web_sys::Blob;
 use crate::io::BlobSource;
 use crate::local::{DriveItem, LocalDrive, node};
 use crate::reader::{Cancellation, progress};
+use crate::share::ShareInfo;
 use crate::{CoreError, to_js};
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -156,6 +158,84 @@ impl ItemWriter {
             () = cancellation.cancelled() => return Err(CoreError::Cancelled),
         };
         to_js(&DriveItem::from(modified))
+    }
+
+    /// A new link to file `id`, as `content_version` names it. `expires` is
+    /// in Unix milliseconds.
+    #[wasm_bindgen(js_name = createShare, unchecked_return_type = "ShareInfo")]
+    pub async fn create_share(
+        &self,
+        id: String,
+        content_version: Option<String>,
+        label: String,
+        expires: Option<f64>,
+    ) -> Result<JsValue, CoreError> {
+        let file = node(&id)?;
+        let store = self.writer.store();
+        let item = store.item(&file)?.ok_or(CoreError::NoSuchItem)?;
+        if let Some(expected) = content_version
+            && item.content_version().map(hex::encode) != Some(expected)
+        {
+            return Err(CoreError::VersionNoLongerAvailable);
+        }
+        let content = item
+            .file
+            .ok_or_else(|| CoreError::Check("a folder has no link".into()))?;
+        let drive = store
+            .drive()?
+            .ok_or_else(|| CoreError::Check("no drive is set up".into()))?;
+        let mut servers = drive.servers;
+        servers.extend(store.lists_state()?.leaving);
+        let shown = Shown {
+            name: item.name,
+            servers,
+            file: content,
+        };
+        let expires = expires.map(|millis| (millis / 1000.0) as u64);
+        let meta = share::create(&drive.relays, &shown, expires).await?;
+        let label = match label.trim() {
+            "" => "Link",
+            label => label,
+        };
+        let node = self.writer.add_share(file, label, meta)?;
+        let share = share::share(store, &node)?.ok_or(CoreError::NoSuchItem)?;
+        to_js(&ShareInfo::from(share))
+    }
+
+    /// A new label, unless `undefined`, and a new expiry: `undefined` keeps
+    /// it, `null` removes it, a number is in Unix milliseconds. The drive
+    /// session shows a new expiry on the link's relays.
+    #[wasm_bindgen(js_name = editShare)]
+    pub fn edit_share(
+        &self,
+        id: String,
+        label: Option<String>,
+        #[wasm_bindgen(unchecked_param_type = "number | null | undefined")] expires: JsValue,
+    ) -> Result<(), CoreError> {
+        let expires = if expires.is_undefined() {
+            None
+        } else {
+            Some(expires.as_f64().map(|millis| (millis / 1000.0) as u64))
+        };
+        let label = label.map(|label| match label.trim() {
+            "" => "Link".to_owned(),
+            label => label.to_owned(),
+        });
+        self.writer
+            .edit_share(node(&id)?, label.as_deref(), expires)?;
+        Ok(())
+    }
+
+    /// Stops a link on its relays, then removes it from the drive.
+    #[wasm_bindgen(js_name = stopShare)]
+    pub async fn stop_share(&self, id: String) -> Result<(), CoreError> {
+        let node = node(&id)?;
+        let Some(share) = share::share(self.writer.store(), &node)? else {
+            return Ok(());
+        };
+        share::publish(&share.meta, None).await?;
+        self.writer.remove_share(node)?;
+        Ok(())
     }
 
     /// Deletes the item and, when `recursive`, everything under it. A file

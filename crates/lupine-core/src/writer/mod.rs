@@ -30,6 +30,7 @@ use crate::items::{self, Item, ItemChanges};
 use crate::names;
 use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::replica::{Record, WrapState};
+use crate::share::ShareMeta;
 use crate::store::{Store, Writer, Written};
 #[cfg(any(unix, windows))]
 use crate::task::blocking;
@@ -452,6 +453,75 @@ impl<S: BlobStore> ItemWriter<S> {
         Ok(Deletion::Deleted(written))
     }
 
+    /// The share node of a link that [`crate::share::create`] made for `file`.
+    pub fn add_share(&self, file: NodeId, label: &str, meta: ShareMeta) -> Result<NodeId> {
+        let label = checked_name(label)?;
+        if self.store.item(&file)?.and_then(|item| item.file).is_none() {
+            return Err(Error::UnknownNode);
+        }
+        let node = NodeId::random();
+        self.write(|batch| {
+            let stamp = batch.clock.stamp(batch.epoch);
+            batch.add(NodeVersion::share(stamp, node, file, &label, meta), false)?;
+            Ok(node)
+        })
+    }
+
+    /// A new label or expiry for a link; `None` keeps the current one. The
+    /// session shows a new expiry on the link's relays.
+    pub fn edit_share(
+        &self,
+        node: NodeId,
+        label: Option<&str>,
+        expires: Option<Option<u64>>,
+    ) -> Result<()> {
+        let label = label.map(checked_name).transpose()?;
+        self.write(|batch| {
+            let versions = self.store.node_versions(&node)?;
+            let history = history(&versions);
+            let heads = history.heads().ok_or(Error::UnknownNode)?;
+            let (_, winner) = heads.winner();
+            let mut next = winner.clone();
+            let Some(meta) = next.share.as_mut() else {
+                return Err(Error::UnknownNode);
+            };
+            if let Some(expires) = expires {
+                meta.expires = expires;
+            }
+            if let Some(label) = label {
+                next.name = label;
+            }
+            if next.same_state(winner) {
+                return Ok(());
+            }
+            let version = next.rewritten(batch.clock.stamp(batch.epoch), &heads.versions())?;
+            batch.add(version, false)
+        })
+    }
+
+    /// The tombstone of a link, once [`crate::share::publish`] stopped it on its
+    /// relays.
+    pub fn remove_share(&self, node: NodeId) -> Result<()> {
+        self.write(|batch| {
+            let versions = self.store.node_versions(&node)?;
+            let history = history(&versions);
+            let heads = history.heads().ok_or(Error::UnknownNode)?;
+            let (winner_id, winner) = heads.winner();
+            if winner.is_tombstone() {
+                return Ok(());
+            }
+            let mut replaced = vec![winner];
+            replaced.extend(
+                heads
+                    .iter()
+                    .filter(|(id, _)| *id != winner_id)
+                    .map(|(_, v)| v),
+            );
+            let tombstone = NodeVersion::tombstone(batch.clock.stamp(batch.epoch), &replaced)?;
+            batch.add(tombstone, false)
+        })
+    }
+
     fn write<T>(&self, change: impl FnOnce(&mut Batch<'_>) -> Result<T>) -> Result<T> {
         let _writing = self.writing.lock().unwrap_or_else(|e| e.into_inner());
         let mut batch = Batch {
@@ -485,6 +555,7 @@ impl<S: BlobStore> ItemWriter<S> {
         let heads = history(&versions).heads().ok_or(Error::UnknownParent)?;
         match heads.winner().1.node_type {
             NodeType::File => Err(Error::Malformed("the parent is a file")),
+            NodeType::Share => Err(Error::Malformed("the parent is a share")),
             NodeType::Folder | NodeType::Deleted => Ok(()),
         }
     }
@@ -681,7 +752,7 @@ fn shown(version: &NodeVersion, parent: Option<NodeId>, name: String) -> Item {
         name,
         kind: match version.node_type {
             NodeType::File => EntryKind::File,
-            NodeType::Folder | NodeType::Deleted => EntryKind::Folder,
+            NodeType::Folder | NodeType::Deleted | NodeType::Share => EntryKind::Folder,
         },
         created: version.created,
         modified: version.modified,

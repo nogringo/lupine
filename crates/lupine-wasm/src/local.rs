@@ -10,12 +10,14 @@ use lupine_core::drive::DriveKeys;
 use lupine_core::ids::NodeId;
 use lupine_core::items::Item;
 use lupine_core::relays::Relays;
+use lupine_core::share;
 use lupine_core::store::{DescriptorRecord, DriveRecord, Store};
 use nostr::key::SecretKey;
 use nostr::nips::nip19::ToBech32;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use crate::share::ShareInfo;
 use crate::storage::remove_database;
 use crate::{CoreError, to_js};
 
@@ -276,6 +278,13 @@ impl LocalDrive {
     pub fn item(&self, id: String) -> Result<JsValue, CoreError> {
         let item = self.store.item(&node(&id)?)?;
         to_js(&item.map(DriveItem::from).ok_or(CoreError::NoSuchItem)?)
+    }
+
+    /// The live links of file `id`, oldest first.
+    #[wasm_bindgen(unchecked_return_type = "ShareInfo[]")]
+    pub fn shares(&self, id: String) -> Result<JsValue, CoreError> {
+        let shares = share::shares_of(&self.store, &node(&id)?)?;
+        to_js(&shares.into_iter().map(ShareInfo::from).collect::<Vec<_>>())
     }
 
     /// The items in `parent` (`undefined` for the drive root) after `after`.

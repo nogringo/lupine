@@ -77,7 +77,7 @@ impl Tree {
 
         let mut drafts: HashMap<NodeId, Draft> = winners
             .iter()
-            .filter(|(_, (_, head))| !head.is_tombstone())
+            .filter(|(_, (_, head))| !head.is_tombstone() && head.node_type != NodeType::Share)
             .map(|(&node, &(version, head))| {
                 let kind = match head.node_type {
                     NodeType::File => EntryKind::File,

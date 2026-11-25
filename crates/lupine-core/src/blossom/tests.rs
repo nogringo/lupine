@@ -26,6 +26,10 @@ struct Behavior {
     /// BUD-13 `POST /<sha256>`.
     mirror: bool,
     ignores_ranges: bool,
+    /// Answers ranges without `Content-Range`, as a browser shows them when the server does not expose it.
+    hides_content_range: bool,
+    /// Answers a range one byte further than asked.
+    shifts_ranges: bool,
     get_needs_auth: bool,
     corrupts: bool,
     /// BUD-06 `HEAD /upload`.
@@ -38,6 +42,8 @@ const MODERN: Behavior = Behavior {
     put: true,
     mirror: true,
     ignores_ranges: false,
+    hides_content_range: false,
+    shifts_ranges: false,
     get_needs_auth: false,
     corrupts: false,
     preflight: true,
@@ -200,14 +206,21 @@ impl Fake {
         let range = headers
             .get(header::RANGE)
             .and_then(|v| v.to_str().ok()?.strip_prefix("bytes=")?.split_once('-'))
-            .and_then(|(start, end)| Some((start.parse().ok()?, end.parse().ok()?)));
+            .and_then(|(start, end)| {
+                Some((start.parse::<usize>().ok()?, end.parse::<usize>().ok()?))
+            });
         match range {
             Some((start, end)) if !self.behavior.ignores_ranges => {
+                let shift = usize::from(self.behavior.shifts_ranges);
+                let (start, end) = (start + shift, end + shift);
                 if end >= blob.len() || start > end {
                     return StatusCode::RANGE_NOT_SATISFIABLE.into_response();
                 }
-                let content_range = format!("bytes {start}-{end}/{}", blob.len());
                 let part = blob[start..=end].to_vec();
+                if self.behavior.hides_content_range {
+                    return (StatusCode::PARTIAL_CONTENT, part).into_response();
+                }
+                let content_range = format!("bytes {start}-{end}/{}", blob.len());
                 let headers = [(header::CONTENT_RANGE, content_range)];
                 (StatusCode::PARTIAL_CONTENT, headers, part).into_response()
             }
@@ -402,6 +415,49 @@ async fn reads_skip_servers_that_lost_or_corrupt_a_blob() {
         store.get(hash).await,
         Err(Error::BlobHashMismatch(_))
     ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ranges_need_no_visible_content_range() {
+    let hiding = Behavior {
+        hides_content_range: true,
+        ..MODERN
+    };
+    let (fakes, store) = setup(&[hiding]).await;
+    let data: Vec<u8> = (0..(3 << 19)).map(|i| (i % 251) as u8).collect();
+    let key = FileKey::generate();
+    let content = upload_file(&store, &key, &data).await;
+    check_read(&store, &content, &key, &data, 100_000..1_200_000).await;
+    assert!(fakes[0].count("GET /<sha256> 206") > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn another_range_fails_to_decrypt() {
+    let (_, store) = setup(&[MODERN]).await;
+    let data: Vec<u8> = (0..(3 << 19)).map(|i| (i % 251) as u8).collect();
+    let key = FileKey::generate();
+    let content = upload_file(&store, &key, &data).await;
+    let origins = setup(&[Behavior {
+        hides_content_range: true,
+        shifts_ranges: true,
+        ..MODERN
+    }])
+    .await;
+    for chunk in content.chunks() {
+        origins.0[0].insert(&store.get(chunk.blob).await.unwrap());
+    }
+    let sink = Arc::new(MemoryFile::default());
+    let read = download(
+        &origins.1,
+        &content,
+        &key,
+        100_000..200_000,
+        sink,
+        OPTIONS,
+        &|_| {},
+    )
+    .await;
+    assert!(matches!(read, Err(Error::Decrypt)), "{read:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

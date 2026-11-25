@@ -532,6 +532,20 @@ impl Store {
         Ok(versions)
     }
 
+    /// Nodes that were ever a share of `file`.
+    pub fn share_nodes(&self, file: &NodeId) -> Result<Vec<NodeId>> {
+        let conn = self.lock();
+        let mut statement = conn.prepare_cached(
+            "SELECT DISTINCT node FROM versions WHERE json ->> '$.type' = 'share' AND json ->> '$.parent' = ?1",
+        )?;
+        let mut rows = statement.query([file.to_hex()])?;
+        let mut nodes = Vec::new();
+        while let Some(row) = rows.next()? {
+            nodes.push(NodeId(array(row.get(0)?)?));
+        }
+        Ok(nodes)
+    }
+
     pub(crate) fn snapshot(&self) -> Result<Snapshot> {
         let conn = self.lock();
         let mut snapshot = Snapshot::default();

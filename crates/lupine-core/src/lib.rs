@@ -26,6 +26,7 @@ pub mod relays;
 pub mod replica;
 pub mod rotation;
 pub mod session;
+pub mod share;
 pub mod store;
 mod task;
 #[cfg(test)]
@@ -38,4 +39,5 @@ pub use error::{Error, Result};
 /// Provisional, see `docs/protocol.md`.
 pub mod kinds {
     pub const DRIVE_DESCRIPTOR: u16 = 3540;
+    pub const SHARE_MANIFEST: u16 = 3541;
 }

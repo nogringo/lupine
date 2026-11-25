@@ -1,6 +1,6 @@
 # Lupine protocol, v1 (draft)
 
-Event kind 3540 is provisional. `crates/lupine-core` implements everything below.
+Event kinds 3540 and 3541 are provisional. `crates/lupine-core` implements everything below.
 
 ## Conventions
 
@@ -128,17 +128,18 @@ A version's id is the SHA-256 of its decrypted plaintext, padding included. The 
 |---|---|---|---|
 | `v` | number | always | `1` |
 | `node` | hex | always | Node id: 16 random bytes, fixed for the life of the node |
-| `type` | string | always | `file`, `folder` or `deleted` |
+| `type` | string | always | `file`, `folder`, `share` or `deleted` |
 | `epoch` | number | always | Drive epoch the version was written in |
 | `time` | number | always | When the version was written, in Unix milliseconds |
 | `device` | hex | always | Id of the device that wrote the version |
 | `vv` | object | always | Version vector, see below |
-| `parent` | hex | optional | Parent node id. Absent at the drive root |
+| `parent` | hex | optional | Parent node id. Absent at the drive root. A share's is its file |
 | `name` | string | always | 1 to 255 UTF-8 bytes in NFC, not `.` or `..`, no `/` or NUL |
 | `created`, `modified` | number | optional | File times, in Unix milliseconds |
 | `file` | object | file only | See below |
+| `share` | object | share only | See [Share links](#share-links) |
 
-A node keeps its type until it is deleted. A `deleted` version is a tombstone: it keeps the `parent` and `name` the node had, so the node can be restored, and has no `file`. Readers ignore unknown fields.
+A node keeps its type until it is deleted. A `deleted` version is a tombstone: it keeps the `parent` and `name` the node had, so the node can be restored, and has no `file` or `share`. Readers ignore unknown fields.
 
 A device id is 16 random bytes, generated once per install. Two installs never share one: an install cloned or restored from a backup generates a new id. Each part of an install that writes versions on its own, such as an app, its File Provider extension and its folder sync, has an id of its own: a device writes each version after seeing its last one.
 
@@ -179,7 +180,7 @@ Two devices that resolve the same conflict create the same copies, and their ver
 
 ### Tree
 
-A node's parent and name are those of its winning head. Clients then apply these rules, in order, so they all show the same tree:
+A node's parent and name are those of its winning head. Shares are not in the tree: the rules skip them, and a live share never revives its file. Clients then apply these rules, in order, so they all show the same tree:
 
 1. Deleted parents. A live node whose parent's winning head is a tombstone revives that parent as a folder, with the name and parent its tombstone kept, and so on up the tree. An edit or a move into a folder deleted at the same time thus wins over the deletion.
 2. Missing parents. A node whose parent is unknown, or is not a folder, waits: the parent may only be late. Once the client has synced every drive relay, it shows the node at the drive root.
@@ -247,11 +248,91 @@ Encryption is deterministic: the same plaintext at the same position gives the s
 - Upload with `PUT /<sha256>` (BUD-13), falling back to `PUT /upload` (BUD-02) when `OPTIONS /<sha256>` does not advertise `PUT` (BUD-01 feature discovery), with `Content-Type: application/octet-stream`. Servers that only host media refuse this type, so a drive needs servers that store arbitrary blobs.
 - A server that advertises `POST /<sha256>` (BUD-13) may get a blob by mirroring it from another drive server rather than by an upload. Either way the client checks the blob descriptor's `sha256`.
 - A client uploads every blob of a version to every server before publishing it. Right before publishing, it checks with `HEAD /<sha256>` (BUD-01) that each blob the version references is still on every server, and uploads the missing ones: another device may have collected a blob that this version reuses.
-- Partial reads use `GET /<sha256>` with a `Range` header (BUD-01). When a server ignores `Range` and returns the whole blob, the client keeps the part it needs.
+- Partial reads use `GET /<sha256>` with a `Range` header (BUD-01). When a server ignores `Range` and returns the whole blob, the client keeps the part it needs. A `206` answer that shows no `Content-Range`, as a browser shows it when the server does not expose that header, counts as the range asked for: segments authenticate their position, so another range fails to decrypt.
 - Authorization (BUD-11): kind 24242 signed by the drive key, with a `t` tag, the `x` tag of the blob, a `server` tag holding the server's host name, and a short expiration. Uploads, mirrors and deletions always carry a token; reads carry one once a server answers `401`. An upload token may carry several `x` tags.
 - Deletion is `DELETE /<sha256>` (BUD-12). A `404` counts as deleted.
 - A client deletes a blob (BUD-12) from every drive server once no version it holds has referenced it for 30 days, counted from the first full sync that found it unreferenced. It checks again right after a full sync of every drive relay, before deleting it. A version references its chunks, its chunk table and the chunks the table lists. A blob that no version ever referenced, from an upload whose version was never published, is deleted by the device that uploaded it, 30 days after the upload. The servers the drive left keep their blobs.
 - A client that holds a version it cannot read, such as a later format, deletes no blob: that version may reference any. Neither does a client that cannot read a chunk table for now. A table on no server, or that no server serves intact, lists nothing a reader could use.
+
+## Share links
+
+A share link gives a file to anyone who holds it, without an account or the drive keys. It names a mailbox on relays, not the file: the drive posts what the link shows there, as NIP-59 gift wraps, and stopping the link closes the mailbox.
+
+```
+link: reader key, owner pubkey, relays
+  └─ gift wraps p-tagged to the reader pubkey, on those relays
+       └─ seal signed by the owner key
+            └─ manifest: name, servers, file object
+                 └─ blobs, read as a device reads them
+```
+
+### Keys and link
+
+| Key | Definition |
+|---|---|
+| reader key | A random secp256k1 key per link. The link carries its secret. Its pubkey is the `p` tag of the link's wraps, and readers answer NIP-42 AUTH with it |
+| owner key | A random secp256k1 key per link. Only the drive holds its secret; the link carries its pubkey. It seals the manifests, so only the drive decides what a link shows |
+
+Neither depends on the drive key: relays cannot tie a link to the drive, and a key rotation keeps every link.
+
+A link is a URL whose fragment is the base64url encoding (RFC 4648, section 5), without padding, of a TLV list built as for the recovery key. Browsers never send the fragment to the web server. The web app serves its links at `/s/`.
+
+| Type | Value |
+|---|---|
+| 0 | Reader secret key, 32 bytes |
+| 1 | Owner public key, 32 bytes |
+| 2 | A relay URL, ASCII. Repeated for each relay |
+
+Clients leave out relay URLs longer than 255 bytes. Readers ignore unknown types, and reject a link without both keys or without a relay.
+
+### Manifest
+
+What a link shows at a given time. It travels as a NIP-59 gift wrap from the owner key to the reader key:
+
+- rumor: kind 3541, `pubkey` the owner key, `content` the manifest JSON;
+- seal: kind 13, signed by the owner key;
+- wrap: kind 1059, signed by a fresh random key, `p` tag the reader pubkey, `created_at` random within the last two days. A live manifest of a link that expires adds a NIP-40 `expiration` tag with that time, so that relays may drop it.
+
+| Field | Type | Present | Meaning |
+|---|---|---|---|
+| `v` | number | always | `1` |
+| `time` | number | always | Unix milliseconds |
+| `name` | string | live | The file's name |
+| `servers` | array | live | Blossom server URLs, in BUD-03 order, then those the drive is leaving |
+| `file` | object | live | The file object of the shared file's winning head, as in [node versions](#file-object) |
+| `expires` | number | optional | Unix seconds, after which readers refuse the link |
+| `revoked` | boolean | revoked | `true` in the manifest that stops a link, which has no other fields but `v` and `time` |
+
+Readers ignore unknown fields. To read a link:
+
+1. Connect to every relay of the link, answer AUTH with the reader key, and list `{"kinds": [1059], "#p": [<reader pubkey>]}`.
+2. Unwrap each wrap with the reader key. Keep the rumors of kind 3541 that the owner key sealed: anyone who has the link can post to its mailbox.
+3. A revoked manifest on any relay stops the link, whatever its time. Otherwise the manifest with the greatest `time`, then the lowest rumor id, is the link's state, unless it has expired.
+4. Read the file as [Reading](#reading) describes, from `servers`. A reader holds no key to sign with: a server that asks it for authorization gets a BUD-11 token from a throwaway key, which the server may refuse.
+
+### Share nodes
+
+The drive keeps each link as a node of type `share`, so every device lists it, shows it again and maintains it, and history, compaction and key rotation treat it as any node. Its `parent` is the shared file, its `name` the link's label (`Link` when the user gives none), its `created` when the link was made, and its `share` object holds:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `reader` | hex | Reader secret key |
+| `owner` | hex | Owner secret key |
+| `relays` | array | The relays the link names |
+| `expires` | number, optional | Unix seconds |
+
+A share is live while its winning head is not a tombstone, its file is live and it has not expired. A share's tombstone keeps no key.
+
+### Lifecycle
+
+- Creating: generate both keys and publish a first manifest to every drive relay. Keep the relays that accept it and serve it back to the reader key after AUTH, and fail when none does: some relays take gift wraps only for their members. Then write the share node, with those relays.
+- Following: once it has synced every drive relay, a device reads the manifest of each live share. When its `name`, `file`, `servers` or `expires` differ from the shared file's winning head, the drive's servers and the share, or when there is none, it publishes a new one. A device asks a link's relays again only once that state changed since it last looked, and once a day.
+- Publishing a manifest deletes the other wraps to the reader key, older manifests and what others posted, with a NIP-09 deletion signed by the reader key that names their wrap ids. NIP-59 has relays delete the `kind:1059` events whose `p` tag matches the signer of a deletion. A revoked manifest is never deleted, and no device publishes after one: a device that missed a stop cannot undo it.
+- Stopping: Stop sharing, an expiry and the deletion of the file end a share the same way. The device publishes a revoked manifest, without an `expiration` tag, then writes a tombstone of the share node. A device that finds a revoked manifest for a live share, from a stop cut short, writes the tombstone. When a file is deleted, the first device that finds a live share of it after a full sync stops it.
+
+A stopped link no longer opens for whoever has not opened it, nor for a reader who kept nothing. A reader who kept the file, or its key and chunk table, keeps them: the blobs stay readable until the file changes and blob collection deletes them. Anyone who has the link can break it for everyone, by deleting its wraps as their recipient, but cannot change what it shows. A relay can hide the latest manifest; readers take the latest across all the link's relays, and a revoked one from any of them.
+
+The manifest carries `file_root`, which later versions of the file keep until a key rotation. Their new chunks stay out of reach of whoever kept a manifest: their segment nonces derive from MACs that only their chunk table lists.
 
 ## What servers learn
 
@@ -265,8 +346,12 @@ Traffic analysis can still single out a drive: a pubkey without a profile that r
 
 The descriptor reveals that an npub has a Lupine drive, not which one. The drive's kinds 10050 and 10063 also go to the user's relays, so those relays can guess from timing that the two pubkeys are linked.
 
+A link's manifests are gift wraps to a random pubkey from random keys, like any direct message: only timing and the publishing device's address tie them to the drive. Each opening is an AUTH as the reader key, from the reader's address, so relays can count openings per link. The Blossom servers see the reader fetch the blobs, and the web server that serves the link's page sees the visit, not the fragment.
+
 ## What apps and devices can do
 
 Any app the user lets decrypt with their key, through a NIP-46 bunker or a NIP-07 extension, can read the descriptor, and with it the whole drive. A signer decrypts NIP-44 payloads without knowing what they hold, so no per-kind permission protects the descriptor: only apps the user trusts with the drive should get NIP-44 decryption.
 
 A device or a recovery key that holds the drive secret can read, write and delete everything: wraps through deletions as their recipient, blobs through BUD-12. Key rotation takes this power back, within the limits it states.
+
+A share link reads its file as the drive last showed it, and nothing else of the drive.

@@ -45,3 +45,19 @@ pub mod key {
             .ok_or_else(|| serde::de::Error::custom("invalid key"))
     }
 }
+
+/// Secp256k1 secret keys as hex.
+pub mod secret_key {
+    use nostr::key::SecretKey;
+
+    use super::*;
+
+    pub fn serialize<S: Serializer>(key: &SecretKey, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&key.to_secret_hex())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SecretKey, D::Error> {
+        let text = String::deserialize(d)?;
+        SecretKey::from_hex(&text).map_err(|_| serde::de::Error::custom("invalid secret key"))
+    }
+}

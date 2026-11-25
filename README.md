@@ -2,7 +2,7 @@
 
 End-to-end encrypted drive on Nostr and Blossom. Native apps backed by a shared Rust core; macOS comes first, then the web.
 
-Early development: the content format, the Blossom client, the Nostr layer and the local database exist, Finder reads and writes a drive, folders of the Mac sync with it, and the app signs in with Nostr and can change the drive key. The web app signs in, browses a drive, uploads, downloads and edits it. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
+Early development: the content format, the Blossom client, the Nostr layer and the local database exist, Finder reads and writes a drive, folders of the Mac sync with it, and the app signs in with Nostr and can change the drive key. The web app signs in, browses a drive, uploads, downloads and edits it, and shares files by link. See [docs/architecture.md](docs/architecture.md) and [docs/protocol.md](docs/protocol.md).
 
 ## Layout
 
@@ -45,7 +45,7 @@ At first launch, Lupine opens a window to sign in: with a signer app (NIP-46, a 
 
 Lupine then shows up in the Finder sidebar. What Finder changes there reaches the relays while the Lupine app runs. To sync a folder of the Mac, choose Add Folder... in the menu. It syncs with the drive folder of the same name at the drive root, made when there is none. The menu also opens the settings, which show the recovery key, change the drive key and sign out. Changing the key takes your Nostr key once; the other devices then ask you to sign in again.
 
-The web app offers the same sign-in, a NIP-07 browser extension included, then shows the drive as a list of folders and files: upload by picking or dropping files and folders, download by opening a file, and rename, move or delete from each item's menu. Several tabs can show the drive at once. Its Blossom servers must allow requests from web pages (CORS).
+The web app offers the same sign-in, a NIP-07 browser extension included, then shows the drive as a list of folders and files: upload by picking or dropping files and folders, download by opening a file, and rename, move or delete from each item's menu. A file also gets share links, from its menu or the viewer: whoever opens one, without an account, sees the file as it is or downloads it, decrypted in their browser, until the link is stopped or expires. Videos play as they stream. Several tabs can show the drive at once. Its Blossom servers must allow requests from web pages (CORS).
 
 To try a drive without a Nostr account, the `seed` example creates one holding a copy of a local folder, empty or not, and prints its recovery key, which both sign-in screens open.
 

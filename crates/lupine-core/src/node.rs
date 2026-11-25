@@ -11,6 +11,7 @@ use crate::encoding;
 use crate::error::{Error, Result};
 use crate::ids::{DeviceId, NodeId};
 use crate::names;
+use crate::share::ShareMeta;
 use crate::task::{SystemTime, UNIX_EPOCH};
 
 pub const NODE_FORMAT_VERSION: u8 = 1;
@@ -22,6 +23,8 @@ pub enum NodeType {
     Folder,
     /// Tombstone, so other devices learn of the deletion.
     Deleted,
+    /// A link that gives a file to anyone who holds it. Not in the tree.
+    Share,
 }
 
 /// Who writes a version: the device, its next sequence number and the
@@ -89,6 +92,8 @@ pub struct NodeVersion {
     pub modified: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<FileMeta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share: Option<ShareMeta>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -133,6 +138,14 @@ impl NodeVersion {
         Self::new(stamp, node, NodeType::File, parent, name, Some(file))
     }
 
+    /// A link to the file `file`, named `label`.
+    pub fn share(stamp: Stamp, node: NodeId, file: NodeId, label: &str, share: ShareMeta) -> Self {
+        let mut version = Self::new(stamp, node, NodeType::Share, Some(file), label, None);
+        version.share = Some(share);
+        version.created = Some(version.time);
+        version
+    }
+
     /// Replaces `heads`, keeping the place of `heads[0]`, the winning head,
     /// so the node can be restored.
     pub fn tombstone(stamp: Stamp, heads: &[&NodeVersion]) -> Result<Self> {
@@ -171,6 +184,7 @@ impl NodeVersion {
             created: None,
             modified: None,
             file,
+            share: None,
         }
     }
 
@@ -226,6 +240,7 @@ impl NodeVersion {
             && self.created == other.created
             && self.modified == other.modified
             && self.file == other.file
+            && self.share == other.share
     }
 
     pub fn is_tombstone(&self) -> bool {
@@ -246,10 +261,16 @@ impl NodeVersion {
         }
         match (self.node_type, &self.file) {
             (NodeType::File, None) => return Err(Error::Malformed("file without content")),
-            (NodeType::Folder | NodeType::Deleted, Some(_)) => {
+            (NodeType::Folder | NodeType::Deleted | NodeType::Share, Some(_)) => {
                 return Err(Error::Malformed("content on a non-file node"));
             }
             _ => {}
+        }
+        let is_share = self.node_type == NodeType::Share;
+        if is_share != self.share.is_some() || (is_share && self.parent.is_none()) {
+            return Err(Error::Malformed(
+                "a share needs its keys and its file, and only a share has them",
+            ));
         }
         names::validate(&self.name)
     }
@@ -342,6 +363,36 @@ mod tests {
         );
         assert!(tombstone.dominates(&live));
         assert!(NodeVersion::tombstone(stamp(b, 6), &[]).is_err());
+    }
+
+    #[test]
+    fn only_shares_hold_share_keys() {
+        let s = stamp(DeviceId::random(), 1);
+        let meta = ShareMeta {
+            reader: nostr::key::SecretKey::generate(),
+            owner: nostr::key::SecretKey::generate(),
+            relays: Vec::new(),
+            expires: None,
+        };
+        let share = NodeVersion::share(s, NodeId::random(), NodeId::random(), "Link", meta.clone());
+        share.validate().unwrap();
+        assert!(share.created.is_some());
+        let json = serde_json::to_value(&share).unwrap();
+        assert_eq!(json["type"], "share");
+
+        let mut keyless = share.clone();
+        keyless.share = None;
+        assert!(keyless.validate().is_err());
+        let mut fileless = share.clone();
+        fileless.parent = None;
+        assert!(fileless.validate().is_err());
+        let mut folder = NodeVersion::folder(s, NodeId::random(), None, "Photos");
+        folder.share = Some(meta);
+        assert!(folder.validate().is_err());
+
+        let tombstone = NodeVersion::tombstone(stamp(DeviceId::random(), 2), &[&share]).unwrap();
+        tombstone.validate().unwrap();
+        assert!(tombstone.share.is_none(), "a stopped link keeps no key");
     }
 
     #[test]

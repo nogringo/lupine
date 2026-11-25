@@ -1,5 +1,5 @@
 import init, * as core from "../../core/lupine.js";
-import type { DriveItem, ImportedDrive, SyncEvent } from "../../core/lupine";
+import type { DriveItem, ImportedDrive, ShareInfo, SyncEvent } from "../../core/lupine";
 import { mimeType } from "../lib/media";
 import { folded, freeName } from "../lib/names";
 import type { Account, AppState, Collision, Nip07Call, OpenDrive, SyncStatus, Transfer, Upload } from "../lib/state";
@@ -251,6 +251,30 @@ export class Service {
       opened.transfers.delete(transfer.id);
       cancellation.free();
     }
+  }
+
+  // Share links
+
+  shares(item: DriveItem): ShareInfo[] {
+    return this.requireDrive().local.shares(item.id);
+  }
+
+  /** `expires` in Unix milliseconds. */
+  async createShare(item: DriveItem, label: string, expires?: number): Promise<ShareInfo> {
+    const share = await this.requireDrive().writer.createShare(item.id, item.contentVersion, label, expires);
+    this.written();
+    return share;
+  }
+
+  /** `expires`: `undefined` keeps it, `null` removes it. */
+  editShare(id: string, label: string, expires?: number | null): void {
+    this.requireDrive().writer.editShare(id, label, expires);
+    this.written();
+  }
+
+  async stopShare(id: string): Promise<void> {
+    await this.requireDrive().writer.stopShare(id);
+    this.written();
   }
 
   /** Stops a transfer, or clears one that failed. */

@@ -119,7 +119,10 @@ impl BlossomServer {
         let len = range.end - range.start;
         match response.status() {
             StatusCode::PARTIAL_CONTENT => {
-                if content_range_start(response.headers()) != Some(range.start) {
+                // Browsers hide `Content-Range` from scripts unless the server exposes it. Ranges
+                // are segments, which authenticate their position: another range fails to decrypt.
+                if content_range_start(response.headers()).is_some_and(|start| start != range.start)
+                {
                     return Err(Error::Malformed("server sent another range"));
                 }
                 let part = self.body(response, len).await?;

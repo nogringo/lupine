@@ -14,6 +14,7 @@ use crate::account::Account;
 use crate::blob::MemoryBlobStore;
 use crate::content::{ContentDescriptor, FileKey};
 use crate::ids::DriveId;
+use crate::node::FileMeta;
 use crate::store::{DriveRecord, Store};
 use crate::testing::TestRelay;
 use crate::writer::{Contents, ItemWriter, NewItem, Place};
@@ -733,4 +734,129 @@ async fn following_takes_in_what_the_extension_wrote() {
 
     stop.send(()).unwrap();
     following.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn links_follow_their_file_and_stop_with_it() {
+    let relay = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let store = Store::memory().unwrap();
+    store
+        .set_drive(&DriveRecord {
+            id: DriveId([7; 16]),
+            pubkey: drive.public_key(),
+            epoch: 0,
+            relays: vec![relay.url.clone()],
+            servers: vec!["https://blossom.example".into()],
+        })
+        .unwrap();
+    let store = Arc::new(store);
+    let mut session = open(&drive, &store).await;
+    synced(&mut session).await;
+    let key = FileKey::generate();
+    let (file, _) = session
+        .create_file(None, "Lupines.jpg", &key, content(1), None)
+        .await
+        .unwrap();
+
+    let shown = share::Shown {
+        name: "Lupines.jpg".into(),
+        servers: vec!["https://blossom.example".into()],
+        file: FileMeta {
+            key: key.root().clone(),
+            content: content(1),
+        },
+    };
+    let meta = share::create(std::slice::from_ref(&relay.url), &shown, None)
+        .await
+        .unwrap();
+    let keys = DriveKeys::from_secret(drive.keys().secret_key().clone());
+    let writer = ItemWriter::new(Arc::clone(&store), keys, MemoryBlobStore::new()).unwrap();
+    let node = writer.add_share(file, "For Alice", meta.clone()).unwrap();
+    session.take_in().await.unwrap();
+    assert_eq!(
+        session.maintain_shares().await.unwrap(),
+        0,
+        "the link is current"
+    );
+    assert_eq!(
+        listing(&session),
+        ["Lupines.jpg"],
+        "links are not in the tree"
+    );
+    let shares = share::shares_of(&store, &file).unwrap();
+    assert_eq!(shares.len(), 1);
+    assert_eq!(
+        (shares[0].node, shares[0].label.as_str()),
+        (node, "For Alice")
+    );
+
+    session.move_to(file, None, "Lupins.jpg").await.unwrap();
+    assert_eq!(session.maintain_shares().await.unwrap(), 1);
+    assert!(matches!(
+        share::open(&meta.link()).await.unwrap(),
+        share::LinkState::Live { shown, .. } if shown.name == "Lupins.jpg"
+    ));
+    assert_eq!(
+        session.maintain_shares().await.unwrap(),
+        0,
+        "nothing changed"
+    );
+
+    session.delete(file).await.unwrap();
+    assert!(
+        listing(&session).is_empty(),
+        "a live link does not bring its file back"
+    );
+    assert_eq!(session.maintain_shares().await.unwrap(), 1);
+    assert_eq!(
+        share::open(&meta.link()).await.unwrap(),
+        share::LinkState::Revoked
+    );
+    assert!(share::shares_of(&store, &file).unwrap().is_empty());
+    assert_eq!(session.maintain_shares().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn a_stop_cut_short_ends_the_share() {
+    let relay = TestRelay::start().await;
+    let drive = DriveKeys::generate();
+    let store = Store::memory().unwrap();
+    store
+        .set_drive(&DriveRecord {
+            id: DriveId([7; 16]),
+            pubkey: drive.public_key(),
+            epoch: 0,
+            relays: vec![relay.url.clone()],
+            servers: vec!["https://blossom.example".into()],
+        })
+        .unwrap();
+    let store = Arc::new(store);
+    let mut session = open(&drive, &store).await;
+    synced(&mut session).await;
+    let key = FileKey::generate();
+    let (file, _) = session
+        .create_file(None, "Lupines.jpg", &key, content(1), None)
+        .await
+        .unwrap();
+    let shown = share::Shown {
+        name: "Lupines.jpg".into(),
+        servers: vec!["https://blossom.example".into()],
+        file: FileMeta {
+            key: key.root().clone(),
+            content: content(1),
+        },
+    };
+    let meta = share::create(std::slice::from_ref(&relay.url), &shown, None)
+        .await
+        .unwrap();
+    let keys = DriveKeys::from_secret(drive.keys().secret_key().clone());
+    let writer = ItemWriter::new(Arc::clone(&store), keys, MemoryBlobStore::new()).unwrap();
+    writer.add_share(file, "Link", meta.clone()).unwrap();
+    session.take_in().await.unwrap();
+
+    // Stopped on the relays, then the device went away before the tombstone.
+    share::publish(&meta, None).await.unwrap();
+    session.maintain_shares().await.unwrap();
+    assert!(share::shares_of(&store, &file).unwrap().is_empty());
 }

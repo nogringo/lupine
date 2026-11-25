@@ -28,6 +28,7 @@ use crate::lists::{self, Changed, Latest};
 use crate::node::{DeviceClock, FileMeta, NodeType, NodeVersion, unix_millis};
 use crate::relays::{Comparison, Relays, Sent};
 use crate::replica::{Holdings, Replica, Retention};
+use crate::share::{self, LinkState, Shown};
 use crate::store::{Outgoing, Store};
 use crate::task::{self, Instant};
 use crate::tree::Tree;
@@ -108,6 +109,9 @@ pub struct DriveSession {
     items: HashMap<NodeId, Item>,
     items_changed: bool,
     compacted: Option<Instant>,
+    /// What each link showed on its relays when this session last looked,
+    /// and its expiry: relays are asked again once that changes.
+    shares: HashMap<NodeId, (Option<Shown>, Option<u64>)>,
 }
 
 enum Ended {
@@ -142,6 +146,7 @@ impl DriveSession {
             items,
             items_changed: false,
             compacted: None,
+            shares: HashMap::new(),
         };
         // The items follow the rules of this version of the core.
         session.persist(true)?;
@@ -482,7 +487,9 @@ impl DriveSession {
             let due = self.compacted.is_none_or(|at| at.elapsed() >= COMPACTION);
             if self.complete && due {
                 report(Followed::Compacted(self.compact().await?));
+                self.shares.clear();
             }
+            self.maintain_shares().await?;
             self.report_items(&mut report);
 
             let ended = match live.as_mut() {
@@ -499,6 +506,7 @@ impl DriveSession {
                             () = &mut retry => break Ended::Closed,
                             () = written.notified() => {
                                 self.take_in().await?;
+                                self.maintain_shares().await?;
                                 self.report_items(&mut report);
                             }
                         }
@@ -531,6 +539,7 @@ impl DriveSession {
                 () = &mut resync => return Ok(Ended::Resync),
                 () = written.notified() => {
                     self.take_in().await?;
+                    self.maintain_shares().await?;
                     self.report_items(report);
                     continue;
                 }
@@ -728,6 +737,7 @@ impl DriveSession {
         let heads = self.replica.heads(&parent).ok_or(Error::UnknownParent)?;
         match heads.winner().1.node_type {
             NodeType::File => Err(Error::Malformed("the parent is a file")),
+            NodeType::Share => Err(Error::Malformed("the parent is a share")),
             NodeType::Folder | NodeType::Deleted => Ok(()),
         }
     }
@@ -814,6 +824,97 @@ impl DriveSession {
             self.relays.send_all(deletion).await;
         }
         Ok(doomed.len())
+    }
+
+    /// Keeps each link showing its file as it is, and stops the links that
+    /// expired or whose file is gone. Waits for a full sync. Asks a link's
+    /// relays again only once its file or its share changed since this
+    /// session last looked; a link they did not answer for waits for the
+    /// next call. Returns the links whose relays it changed.
+    pub async fn maintain_shares(&mut self) -> Result<usize> {
+        if !self.complete {
+            return Ok(0);
+        }
+        let drive = self
+            .store
+            .drive()?
+            .ok_or(Error::Malformed("no drive in the local database"))?;
+        let mut servers = drive.servers;
+        servers.extend(self.store.lists_state()?.leaving);
+        let now = share::now_secs();
+        let mut due = Vec::new();
+        for node in self.replica.node_ids() {
+            let Some(heads) = self.replica.heads(&node) else {
+                continue;
+            };
+            let (_, winner) = heads.winner();
+            let (NodeType::Share, Some(meta), Some(file)) =
+                (winner.node_type, &winner.share, winner.parent)
+            else {
+                continue;
+            };
+            let shown = self
+                .replica
+                .heads(&file)
+                .map(|heads| heads.winner().1)
+                .filter(|head| head.node_type == NodeType::File && !meta.expired(now))
+                .and_then(|head| {
+                    Some(Shown {
+                        name: head.name.clone(),
+                        servers: servers.clone(),
+                        file: head.file.clone()?,
+                    })
+                });
+            let wanted = (shown, meta.expires);
+            if self.shares.get(&node) != Some(&wanted) {
+                due.push((node, meta.clone(), wanted));
+            }
+        }
+
+        let mut changed = 0;
+        for (node, meta, wanted) in due {
+            let Ok(posted) = share::posted(&meta).await else {
+                continue;
+            };
+            let shown = wanted.0.as_ref();
+            // A stop cut short left the link stopped and its share live.
+            if posted == LinkState::Revoked {
+                self.drop_share(&node).await?;
+                continue;
+            }
+            let current = matches!(&posted, LinkState::Live { shown: posted, expires }
+                if Some(posted) == shown && *expires == meta.expires);
+            if !current {
+                if share::publish(&meta, shown).await.is_err() {
+                    continue;
+                }
+                changed += 1;
+            }
+            if shown.is_some() {
+                self.shares.insert(node, wanted);
+            } else {
+                self.drop_share(&node).await?;
+            }
+        }
+        Ok(changed)
+    }
+
+    async fn drop_share(&mut self, node: &NodeId) -> Result<()> {
+        self.shares.remove(node);
+        let Some(heads) = self.replica.heads(node) else {
+            return Ok(());
+        };
+        let (winner_id, winner) = heads.winner();
+        let mut replaced = vec![winner];
+        replaced.extend(
+            heads
+                .iter()
+                .filter(|(id, _)| *id != winner_id)
+                .map(|(_, v)| v),
+        );
+        let tombstone = NodeVersion::tombstone(self.clock.stamp(self.epoch), &replaced)?;
+        self.publish(tombstone).await?;
+        Ok(())
     }
 
     /// Republishes `event`, unchanged, to the drive relays that lack it:

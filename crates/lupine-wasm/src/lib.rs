@@ -24,6 +24,7 @@ mod io;
 mod lists;
 mod local;
 mod reader;
+mod share;
 mod signer;
 mod storage;
 mod sync;

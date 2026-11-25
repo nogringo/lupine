@@ -1,15 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { lupine, save } from "../lib/client";
+import { lupine } from "../lib/client";
 import { bytes, message } from "../lib/format";
 import type { Viewable } from "../lib/media";
+import { save } from "../lib/save";
 import type { DriveItem, Transfer } from "../lib/state";
-
-const UNSUPPORTED: Record<Viewable, string> = {
-  image: "This browser cannot show this image.",
-  video: "This browser cannot play this video.",
-  audio: "This browser cannot play this audio file.",
-  pdf: "This browser cannot show this PDF.",
-};
+import { Media, UNSUPPORTED } from "./Media";
 
 interface Shown {
   transfer: string;
@@ -23,11 +18,13 @@ export function Viewer({
   item,
   media,
   transfers,
+  onShare,
   onClose,
 }: {
   item: DriveItem;
   media: Viewable;
   transfers: Transfer[];
+  onShare: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -70,6 +67,9 @@ export function Viewer({
     <dialog ref={ref} className="viewer" aria-labelledby="viewer-title" onClose={onClose}>
       <header className="viewer-bar">
         <h2 id="viewer-title">{item.name}</h2>
+        <button className="button" onClick={onShare}>
+          Share
+        </button>
         <button className="button" disabled={!file} onClick={() => file && save(file)}>
           Download
         </button>
@@ -94,23 +94,9 @@ export function Viewer({
             </small>
           </div>
         ) : (
-          <Content media={media} url={shown.url} name={item.name} onError={unplayable} />
+          <Media media={media} url={shown.url} name={item.name} onError={unplayable} />
         )}
       </div>
     </dialog>
   );
-}
-
-function Content({ media, url, name, onError }: { media: Viewable; url: string; name: string; onError: () => void }) {
-  switch (media) {
-    case "image":
-      return <img src={url} alt={name} onError={onError} />;
-    case "video":
-      return <video src={url} controls autoPlay onError={onError} />;
-    case "audio":
-      return <audio src={url} controls autoPlay onError={onError} />;
-    case "pdf":
-      // No sandbox: Chrome shows no PDF in one. The browser's PDF viewer keeps the file's scripts from this page.
-      return <iframe src={url} title={name} />;
-  }
 }

@@ -854,6 +854,74 @@ dialog.viewer::backdrop {
   width: min(16rem, 60vw);
 }
 
+/* Share links */
+
+.shares {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.share {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+
+.share.fresh {
+  border-color: var(--lupine);
+}
+
+.share-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.share .key {
+  margin: 0;
+}
+
+.new-share h3 {
+  font-size: 1rem;
+}
+
+.new-share .row,
+.share form .row {
+  align-items: flex-end;
+}
+
+.grow {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.button.quiet.danger-text {
+  color: var(--warn);
+}
+
+/* The page of a share link */
+
+.shared {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: rgb(14 12 30);
+}
+
+.shared .topbar h1 {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .picker {
   max-height: 16rem;
   overflow: auto;
