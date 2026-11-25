@@ -159,10 +159,3 @@ export function save(file: File): void {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
-
-/** Shows a downloaded file in a new tab, when the browser can. */
-export function show(file: File): void {
-  const url = URL.createObjectURL(file);
-  window.open(url, "_blank", "noopener");
-  setTimeout(() => URL.revokeObjectURL(url), 10 * 60_000);
-}

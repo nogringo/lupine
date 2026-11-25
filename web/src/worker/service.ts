@@ -1,5 +1,6 @@
 import init, * as core from "../../core/lupine.js";
 import type { DriveItem, ImportedDrive, SyncEvent } from "../../core/lupine";
+import { mimeType } from "../lib/media";
 import { folded, freeName } from "../lib/names";
 import type { Account, AppState, Collision, Nip07Call, OpenDrive, SyncStatus, Transfer, Upload } from "../lib/state";
 import { clearDownloads, downloadFile } from "./downloads";
@@ -223,15 +224,16 @@ export class Service {
     this.written();
   }
 
-  /** The file's content, decrypted, for the page to save or show. */
-  async download(item: DriveItem): Promise<File> {
+  /** The file's content, decrypted, for the page to save or show. `id` names its transfer. */
+  async download(item: DriveItem, id: string = crypto.randomUUID()): Promise<File> {
     const opened = this.requireDrive();
-    const handle = await downloadFile();
-    const transfer: Transfer = { id: crypto.randomUUID(), kind: "download", name: item.name, size: item.size, done: 0 };
+    const transfer: Transfer = { id, kind: "download", name: item.name, size: item.size, done: 0 };
     const cancellation = new core.Cancellation();
+    // Before any await, so a cancel sent right after this call finds it.
     opened.transfers.set(transfer.id, cancellation);
     this.updateTransfer(transfer);
     try {
+      const handle = await downloadFile();
       const sink = await handle.createSyncAccessHandle();
       try {
         await opened.reader.fetch(item.id, item.contentVersion, sink, (done) => this.progress(transfer, done), cancellation);
@@ -630,28 +632,4 @@ function isCancelled(error: unknown): boolean {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-const TYPES: Record<string, string> = {
-  avif: "image/avif",
-  gif: "image/gif",
-  jpeg: "image/jpeg",
-  jpg: "image/jpeg",
-  json: "application/json",
-  md: "text/markdown",
-  mov: "video/quicktime",
-  mp3: "audio/mpeg",
-  mp4: "video/mp4",
-  pdf: "application/pdf",
-  png: "image/png",
-  svg: "image/svg+xml",
-  txt: "text/plain",
-  wav: "audio/wav",
-  webm: "video/webm",
-  webp: "image/webp",
-};
-
-function mimeType(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return (dot > 0 && TYPES[name.slice(dot + 1).toLowerCase()]) || "application/octet-stream";
 }

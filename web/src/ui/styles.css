@@ -705,7 +705,8 @@ button.status[aria-expanded="true"]::after {
   color: var(--warn);
 }
 
-.transfer progress {
+.transfer progress,
+.viewer-note progress {
   grid-column: 1 / -1;
   width: 100%;
   height: 4px;
@@ -716,17 +717,20 @@ button.status[aria-expanded="true"]::after {
   accent-color: var(--lupine);
 }
 
-.transfer progress::-webkit-progress-bar {
+.transfer progress::-webkit-progress-bar,
+.viewer-note progress::-webkit-progress-bar {
   background: var(--petal);
   border-radius: 2px;
 }
 
-.transfer progress::-webkit-progress-value {
+.transfer progress::-webkit-progress-value,
+.viewer-note progress::-webkit-progress-value {
   background: var(--lupine);
   border-radius: 2px;
 }
 
-.transfer progress::-moz-progress-bar {
+.transfer progress::-moz-progress-bar,
+.viewer-note progress::-moz-progress-bar {
   background: var(--lupine);
 }
 
@@ -773,6 +777,69 @@ dialog .buttons {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+dialog.viewer {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+dialog.viewer::backdrop {
+  background: rgb(14 12 30 / 90%);
+}
+
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem clamp(1rem, 3vw, 2rem);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.viewer-bar h2 {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
+.viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.viewer-stage img,
+.viewer-stage video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.viewer-note {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  color: #eceaf8;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-note progress {
+  width: min(16rem, 60vw);
 }
 
 .picker {

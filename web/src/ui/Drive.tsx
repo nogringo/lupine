@@ -2,6 +2,7 @@ import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from 
 import { lupine, save } from "../lib/client";
 import { dropped, picked } from "../lib/drop";
 import { bytes, date, message } from "../lib/format";
+import { viewable } from "../lib/media";
 import { folded } from "../lib/names";
 import type { Collision, DriveItem, OpenDrive, Upload } from "../lib/state";
 import { ConfirmDialog, Copy, Modal, NameDialog, useDismiss } from "./dialogs";
@@ -11,6 +12,7 @@ import { MoveDialog } from "./MoveDialog";
 import { Settings } from "./Settings";
 import { Status } from "./Status";
 import { Transfers } from "./Transfers";
+import { Viewer } from "./Viewer";
 
 /** What a row drag carries, so drops tell a move from an upload. */
 const ITEM = "application/x-lupine-item";
@@ -21,7 +23,8 @@ type Dialog =
   | { kind: "move"; item: DriveItem }
   | { kind: "delete"; item: DriveItem }
   | { kind: "collision"; uploads: Upload[]; conflicts: number }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "view"; item: DriveItem };
 
 type SortKey = "name" | "size" | "modified";
 
@@ -85,7 +88,11 @@ export function Drive({
 
   const download = (item: DriveItem) => act(async () => save(await lupine.download(item)));
 
-  const activate = (item: DriveItem) => (item.isFolder ? open(item.id) : download(item));
+  const activate = (item: DriveItem) => {
+    if (item.isFolder) open(item.id);
+    else if (viewable(item.name)) setDialog({ kind: "view", item });
+    else download(item);
+  };
 
   const upload = (uploads: Upload[], into = folder) => {
     if (uploads.length === 0) return;
@@ -345,6 +352,7 @@ export function Drive({
           {...menu}
           onClose={() => setMenu(undefined)}
           onOpen={() => activate(menu.item)}
+          onDownload={() => download(menu.item)}
           onRename={() => setDialog({ kind: "rename", item: menu.item })}
           onMove={() => setDialog({ kind: "move", item: menu.item })}
           onDelete={() => setDialog({ kind: "delete", item: menu.item })}
@@ -426,6 +434,9 @@ export function Drive({
         </Modal>
       )}
       {dialog?.kind === "settings" && <Settings drive={drive} onClose={() => setDialog(undefined)} />}
+      {dialog?.kind === "view" && (
+        <Viewer item={dialog.item} transfers={drive.transfers} onClose={() => setDialog(undefined)} />
+      )}
       {newRecoveryKey && !dialog && (
         <Modal title="Save your recovery key" onClose={onRecoveryKeySaved}>
           <p>It opens this drive without your Nostr key, on any device. Keep it somewhere safe: anyone who has it can read the drive.</p>
@@ -448,6 +459,7 @@ function ItemMenu({
   y,
   onClose,
   onOpen,
+  onDownload,
   onRename,
   onMove,
   onDelete,
@@ -457,6 +469,7 @@ function ItemMenu({
   y: number;
   onClose: () => void;
   onOpen: () => void;
+  onDownload: () => void;
   onRename: () => void;
   onMove: () => void;
   onDelete: () => void;
@@ -475,11 +488,18 @@ function ItemMenu({
       ref={ref}
       className="menu"
       role="menu"
-      style={{ left: Math.max(8, x - 176), top: Math.min(y, window.innerHeight - 180) }}
+      style={{ left: Math.max(8, x - 176), top: Math.min(y, window.innerHeight - 220) }}
     >
-      <button role="menuitem" onClick={choose(onOpen)}>
-        {item.isFolder ? "Open" : "Download"}
-      </button>
+      {(item.isFolder || viewable(item.name)) && (
+        <button role="menuitem" onClick={choose(onOpen)}>
+          Open
+        </button>
+      )}
+      {!item.isFolder && (
+        <button role="menuitem" onClick={choose(onDownload)}>
+          Download
+        </button>
+      )}
       <button role="menuitem" onClick={choose(onRename)}>
         Rename
       </button>
