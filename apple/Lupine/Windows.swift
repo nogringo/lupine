@@ -20,7 +20,6 @@ final class Windows: NSObject, NSWindowDelegate {
             return
         }
         let controller = NSHostingController(rootView: content())
-        controller.sizingOptions = .preferredContentSize
         let window = NSWindow(contentViewController: controller)
         window.title = title
         window.styleMask = [.titled, .closable]
