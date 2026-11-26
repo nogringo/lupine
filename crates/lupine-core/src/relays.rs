@@ -169,9 +169,7 @@ impl Relays {
             }
         }
         let ours: HashSet<EventId> = items.iter().map(|(id, _)| *id).collect();
-        let listed = list(&relay, filter)
-            .await
-            .map_err(|e| relay_error(url, e))?;
+        let listed = list(&relay, url, filter).await?;
         Ok(Comparison {
             held: listed.iter().map(|e| e.id).collect(),
             missing: Vec::new(),
@@ -198,29 +196,15 @@ impl Relays {
         let mut events = Vec::with_capacity(ids.len());
         for batch in ids.chunks(FETCH_BATCH) {
             let filter = filter.clone().ids(batch.iter().copied());
-            let found = relay
-                .fetch_events(filter)
-                .timeout(FETCH_TIMEOUT)
-                .await
-                .map_err(|e| relay_error(url, e))?;
-            events.extend(found);
+            events.extend(fetch_all(&relay, url, filter).await?);
         }
         Ok(events)
     }
 
-    /// The events matching `filter` on the relay `url`, one page of them,
-    /// once the relay said it sent them all: a fetch that times out fails
-    /// rather than return what came so far.
+    /// The events matching `filter` on the relay `url`, one page of them.
     pub async fn events(&self, url: &RelayUrl, filter: &Filter) -> Result<Vec<Event>> {
         let relay = self.relay(url).await?;
-        let fetch = relay.fetch_events(filter.clone().limit(PAGE));
-        match task::timeout(FETCH_TIMEOUT, fetch).await {
-            Some(found) => Ok(found
-                .map_err(|e| relay_error(url, e))?
-                .into_iter()
-                .collect()),
-            None => Err(relay_error(url, "no answer in time")),
-        }
+        fetch_all(&relay, url, filter.clone().limit(PAGE)).await
     }
 
     /// Every event matching `filter` on every relay, deduplicated. Fails
@@ -228,7 +212,7 @@ impl Relays {
     pub async fn query(&self, filter: &Filter) -> Result<Vec<Event>> {
         let listings = join_all(self.urls.iter().map(|url| async move {
             let relay = self.relay(url).await?;
-            list(&relay, filter).await.map_err(|e| relay_error(url, e))
+            list(&relay, url, filter).await
         }))
         .await;
         let mut events = HashMap::new();
@@ -259,11 +243,7 @@ impl Relays {
             let filter = filter.clone();
             async move {
                 let relay = self.relay(url).await.ok()?;
-                let found = relay
-                    .fetch_events(filter)
-                    .timeout(FETCH_TIMEOUT)
-                    .await
-                    .ok()?;
+                let found = fetch_all(&relay, url, filter).await.ok()?;
                 Some(!found.is_empty())
             }
         }))
@@ -355,8 +335,23 @@ pub(crate) fn install_tls_provider() {
 #[cfg(target_family = "wasm")]
 pub(crate) fn install_tls_provider() {}
 
+/// The events matching `filter` once the relay said it sent them all.
+/// nostr-sdk returns what came so far, without an error, when its own
+/// timeout passes or the relay disconnects: nothing from a relay that never
+/// answered.
+async fn fetch_all(relay: &Relay, url: &RelayUrl, filter: Filter) -> Result<Vec<Event>> {
+    let Some(found) = task::timeout(FETCH_TIMEOUT, relay.fetch_events(filter)).await else {
+        return Err(relay_error(url, "no answer in time"));
+    };
+    let found = found.map_err(|e| relay_error(url, e))?;
+    if !relay.status().is_connected() {
+        return Err(relay_error(url, "disconnected before answering"));
+    }
+    Ok(found.into_iter().collect())
+}
+
 /// Pages back through `created_at` until a page brings nothing new.
-async fn list(relay: &Relay, filter: &Filter) -> Result<Vec<Event>, SdkError> {
+async fn list(relay: &Relay, url: &RelayUrl, filter: &Filter) -> Result<Vec<Event>> {
     let mut events: HashMap<EventId, Event> = HashMap::new();
     let mut until = None;
     loop {
@@ -364,7 +359,7 @@ async fn list(relay: &Relay, filter: &Filter) -> Result<Vec<Event>, SdkError> {
         if let Some(until) = until {
             page = page.until(until);
         }
-        let found = relay.fetch_events(page).timeout(FETCH_TIMEOUT).await?;
+        let found = fetch_all(relay, url, page).await?;
         let oldest = found.iter().map(|e| e.created_at).min();
         let new = found
             .into_iter()
