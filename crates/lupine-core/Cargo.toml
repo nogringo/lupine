@@ -34,6 +34,7 @@ zeroize.workspace = true
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 nostr-sdk = { workspace = true, features = ["aws_lc_rs", "rustls-tls-native-roots"] }
 reqwest = { workspace = true, features = ["rustls", "http2", "system-proxy"] }
+rustls = { workspace = true, features = ["aws_lc_rs", "std"] }
 tokio = { workspace = true, features = ["rt", "fs", "io-util", "time"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]

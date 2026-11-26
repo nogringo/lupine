@@ -1535,6 +1535,7 @@ dependencies = [
  "nostr-sdk",
  "reqwest",
  "rusqlite",
+ "rustls",
  "send_wrapper",
  "serde",
  "serde_json",

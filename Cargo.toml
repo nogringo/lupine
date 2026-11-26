@@ -31,6 +31,7 @@ nostr-database = "0.45"
 nostr-memory = "0.45"
 reqwest = { version = "0.13", default-features = false }
 rusqlite = { version = "0.43", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false }
 send_wrapper = { version = "0.6", features = ["futures"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

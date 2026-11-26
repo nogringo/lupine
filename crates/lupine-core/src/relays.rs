@@ -99,6 +99,7 @@ impl Relays {
     }
 
     async fn connect(client: Client, urls: impl IntoIterator<Item = RelayUrl>) -> Result<Self> {
+        install_tls_provider();
         let mut unique = Vec::new();
         for url in urls {
             if !unique.contains(&url) {
@@ -340,6 +341,19 @@ impl Relays {
 fn authenticated(authenticator: impl Authenticator + 'static) -> Client {
     Client::builder().authenticator(authenticator).build()
 }
+
+/// nostr-sdk always brings rustls' ring provider and the core asks for
+/// aws-lc-rs: with both, rustls picks neither and every TLS connection panics.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn install_tls_provider() {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
+
+#[cfg(target_family = "wasm")]
+pub(crate) fn install_tls_provider() {}
 
 /// Pages back through `created_at` until a page brings nothing new.
 async fn list(relay: &Relay, filter: &Filter) -> Result<Vec<Event>, SdkError> {

@@ -95,6 +95,7 @@ fn remote(
     timeout: Duration,
     open_url: Option<OpenUrl>,
 ) -> Result<UserKey> {
+    crate::relays::install_tls_provider();
     let mut signer =
         NostrConnect::new(uri, keys, timeout, None).map_err(|e| Error::Nostr(e.to_string()))?;
     if let Some(open_url) = open_url {
